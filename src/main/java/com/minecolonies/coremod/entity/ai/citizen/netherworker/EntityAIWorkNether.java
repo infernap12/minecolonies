@@ -800,19 +800,26 @@ public class EntityAIWorkNether extends AbstractEntityAICrafting<JobNetherWorker
             {
                 for (final GuardGear item : itemList)
                 {
-                    if (ItemStackUtils.isEmpty(worker.getItemBySlot(item.getType())) && item.getType().equals(equipSlot)
+                    if (item.getType().equals(equipSlot)
                           && building.getBuildingLevel() >= item.getMinBuildingLevelRequired() && building.getBuildingLevel() <= item.getMaxBuildingLevelRequired())
                     {
-                        final ItemStack toBeEquipped = findItem(item::test);
-                        worker.setItemSlot(item.getType(), toBeEquipped);
-                        virtualEquipmentSlots.put(item.getType(), toBeEquipped);
+                        if (!item.test(worker.getInventoryCitizen().getArmorInSlot(item.getType())))
+                        {
+                            final int toBeEquipped = InventoryUtils.findFirstSlotInItemHandlerNotEmptyWith(worker.getItemHandlerCitizen(), item);
+                            if (toBeEquipped > -1)
+                            {
+                                final ItemStack stack = worker.getInventoryCitizen().getStackInSlot(toBeEquipped);
+                                worker.getInventoryCitizen().transferArmorToSlot(item.getType(), toBeEquipped);
+                                virtualEquipmentSlots.put(item.getType(), stack);
+                            }
+                        }
                     }
                 }
             }
         }
         else
         {
-            worker.setItemSlot(equipSlot, ItemStack.EMPTY);
+            worker.getInventoryCitizen().moveArmorToInventory(equipSlot);
             virtualEquipmentSlots.put(equipSlot, ItemStack.EMPTY);
         }
     }
@@ -836,10 +843,12 @@ public class EntityAIWorkNether extends AbstractEntityAICrafting<JobNetherWorker
 
         final List<ItemStack> equipment = new ArrayList<>();
         equipment.add(findTool(ToolType.SWORD));
-        equipment.add(worker.getItemBySlot(EquipmentSlot.HEAD));
-        equipment.add(worker.getItemBySlot(EquipmentSlot.CHEST));
-        equipment.add(worker.getItemBySlot(EquipmentSlot.LEGS));
-        equipment.add(worker.getItemBySlot(EquipmentSlot.FEET));
+
+        equipment.add(worker.getInventoryCitizen().getArmorInSlot(EquipmentSlot.HEAD));
+        equipment.add(worker.getInventoryCitizen().getArmorInSlot(EquipmentSlot.CHEST));
+        equipment.add(worker.getInventoryCitizen().getArmorInSlot(EquipmentSlot.LEGS));
+        equipment.add(worker.getInventoryCitizen().getArmorInSlot(EquipmentSlot.FEET));
+
         equipment.add(findTool(ToolType.PICKAXE));
         equipment.add(findTool(ToolType.AXE));
         equipment.add(findTool(ToolType.SHOVEL));
@@ -873,16 +882,14 @@ public class EntityAIWorkNether extends AbstractEntityAICrafting<JobNetherWorker
         if (slot > -1)
         {
             final ItemStack stack = worker.getInventoryCitizen().getStackInSlot(slot);
-            final FoodProperties itemFood = stack.getItem().getFoodProperties();
+            final FoodProperties itemFood = stack.getItem().getFoodProperties(stack, worker);
             final double satIncrease =
               itemFood.getNutrition() * (1.0 + worker.getCitizenColonyHandler().getColony().getResearchManager().getResearchEffects().getEffectStrength(SATURATION));
 
             citizenData.increaseSaturation(satIncrease / 2.0);
-            citizenData.getInventory().extractItem(slot, 1, false);
 
-            final ItemStack containerItem = stack.getCraftingRemainingItem();
-
-            if (containerItem != null && !(containerItem.getItem() instanceof AirItem))
+            final ItemStack containerItem = stack.finishUsingItem(world, worker);
+            if (!containerItem.isEmpty() && containerItem.getItem() != stack.getItem())
             {
                 if (citizenData.getInventory().isFull())
                 {
@@ -1023,10 +1030,6 @@ public class EntityAIWorkNether extends AbstractEntityAICrafting<JobNetherWorker
             }
 
             citizen.heal((float) healAmount);
-            if (healAmount > 0.1D)
-            {
-                citizenData.markDirty();
-            }
         }
 
         return (float) healAmount;

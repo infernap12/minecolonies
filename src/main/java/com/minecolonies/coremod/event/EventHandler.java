@@ -8,6 +8,7 @@ import com.minecolonies.api.colony.buildings.IGuardBuilding;
 import com.minecolonies.api.colony.interactionhandling.ChatPriority;
 import com.minecolonies.api.colony.permissions.Action;
 import com.minecolonies.api.entity.ModEntities;
+import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.TickRateStateMachine;
 import com.minecolonies.api.entity.citizen.AbstractEntityCitizen;
 import com.minecolonies.api.items.ModTags;
 import com.minecolonies.api.util.Log;
@@ -44,8 +45,10 @@ import net.minecraft.client.multiplayer.ClientLevel;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Mth;
 import net.minecraft.world.entity.*;
 import net.minecraft.world.entity.ai.goal.target.NearestAttackableTargetGoal;
 import net.minecraft.world.entity.monster.Enemy;
@@ -128,7 +131,7 @@ public class EventHandler
     {
         if (!event.getLevel().isClientSide())
         {
-            if (MineColonies.getConfig().getServer().mobAttackCitizens.get() && (event.getEntity() instanceof Enemy) && !(event.getEntity()
+            if (MineColonies.getConfig().getServer().mobAttackCitizens.get() && event.getEntity() instanceof Mob && event.getEntity() instanceof Enemy && !(event.getEntity()
               .getType()
               .is(ModTags.mobAttackBlacklist)))
             {
@@ -267,8 +270,8 @@ public class EventHandler
         final Level world = event.player.level;
         final ChunkPos chunkPos = event.player.chunkPosition();
 
-        final ChunkPos oldPos = playerPositions.computeIfAbsent(event.player.getUUID(), e -> event.player.chunkPosition());
-        if (oldPos.equals(chunkPos))
+        final ChunkPos oldPos = playerPositions.get(event.player.getUUID());
+        if (oldPos != null && oldPos.equals(chunkPos))
         {
             return;
         }
@@ -420,6 +423,7 @@ public class EventHandler
             {
                 colony.getPackageManager().removeCloseSubscriber(player);
                 colony.getPackageManager().removeImportantColonyPlayer(player);
+                playerPositions.remove(player.getUUID());
             }
         }
     }
@@ -678,6 +682,7 @@ public class EventHandler
                  || LocalDateTime.now().getDayOfMonth() == 1 && LocalDateTime.now().getMonth() == Month.NOVEMBER
                  || LocalDateTime.now().getDayOfMonth() == 2 && LocalDateTime.now().getMonth() == Month.NOVEMBER))
         {
+            // Re-enable for ghostly halloween
             RenderBipedCitizen.isItGhostTime = false;
         }
     }
@@ -777,6 +782,19 @@ public class EventHandler
                             "com.minecolonies.coremod.gui.chat.recruitstorycured", visitorData.getName().split(" ")[0]), ChatPriority.IMPORTANT));
                 }
             }
+        }
+    }
+
+    @SubscribeEvent
+    public static void onServerTick(TickEvent.ServerTickEvent event)
+    {
+        final double lastTickMs = event.getServer().tickTimes[event.getServer().getTickCount() % 100] * 1.0E-6D;
+        if (lastTickMs > 50)
+        {
+            TickRateStateMachine.slownessFactor = Mth.clamp(lastTickMs / 50, 1.0D, 5.0D);
+        } else
+        {
+            TickRateStateMachine.slownessFactor = 1.0D;
         }
     }
 }

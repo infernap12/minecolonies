@@ -1,6 +1,7 @@
 package com.minecolonies.coremod.colony;
 
 import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableSet;
 import com.minecolonies.api.blocks.ModBlocks;
 import com.minecolonies.api.colony.*;
 import com.minecolonies.api.colony.buildings.IBuilding;
@@ -15,6 +16,7 @@ import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.ITickRat
 import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.TickRateStateMachine;
 import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.TickingTransition;
 import com.minecolonies.api.entity.citizen.AbstractEntityCitizen;
+import com.minecolonies.api.quests.IQuestManager;
 import com.minecolonies.api.research.IResearchManager;
 import com.minecolonies.api.util.BlockPosUtil;
 import com.minecolonies.api.util.Log;
@@ -26,13 +28,14 @@ import com.minecolonies.api.util.constant.Suppression;
 import com.minecolonies.coremod.MineColonies;
 import com.minecolonies.coremod.Network;
 import com.minecolonies.coremod.colony.managers.*;
+import com.minecolonies.coremod.colony.permissions.ColonyPermissionEventHandler;
 import com.minecolonies.coremod.colony.permissions.Permissions;
 import com.minecolonies.coremod.colony.pvp.AttackingPlayer;
 import com.minecolonies.coremod.colony.requestsystem.management.manager.StandardRequestManager;
 import com.minecolonies.coremod.colony.workorders.WorkManager;
 import com.minecolonies.coremod.datalistener.CitizenNameListener;
 import com.minecolonies.coremod.network.messages.client.colony.ColonyViewRemoveWorkOrderMessage;
-import com.minecolonies.coremod.permissions.ColonyPermissionEventHandler;
+import com.minecolonies.coremod.quests.QuestManager;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Registry;
@@ -59,6 +62,8 @@ import net.minecraftforge.registries.ForgeRegistries;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
+import java.time.LocalDateTime;
+import java.time.Month;
 import java.util.*;
 
 import static com.minecolonies.api.colony.ColonyState.*;
@@ -179,14 +184,24 @@ public class Colony implements IColony
     private final IStatisticsManager statisticManager = new StatisticsManager(this);
 
     /**
+     * Reputation manager of the colony.
+     */
+    private final IStatisticsManager reputationManager = new StatisticsManager(this);
+
+    /**
+     * Quest manager for this colony
+     */
+    private IQuestManager questManager;
+
+    /**
      * The Positions which players can freely interact.
      */
-    private final Set<BlockPos> freePositions = new HashSet<>();
+    private ImmutableSet<BlockPos> freePositions = ImmutableSet.of();
 
     /**
      * The Blocks which players can freely interact with.
      */
-    private final Set<Block> freeBlocks = new HashSet<>();
+    private ImmutableSet<Block> freeBlocks = ImmutableSet.of();
 
     /**
      * Colony permission event handler.
@@ -268,12 +283,12 @@ public class Colony implements IColony
     /**
      * The colonies state machine
      */
-    private final ITickRateStateMachine<ColonyState> colonyStateMachine;
+    private ITickRateStateMachine<ColonyState> colonyStateMachine = null;
 
     /**
      * If the colony is dirty.
      */
-    private boolean isActive = true;
+    private boolean isDirty = true;
 
     /**
      * The colony team color.
@@ -284,8 +299,8 @@ public class Colony implements IColony
      * The colony flag, as a list of patterns.
      */
     private ListTag colonyFlag = new BannerPattern.Builder()
-                                   .addPattern(BannerPatterns.BASE, DyeColor.WHITE)
-                                   .toListTag();
+      .addPattern(BannerPatterns.BASE, DyeColor.WHITE)
+      .toListTag();
 
     /**
      * The last time the mercenaries were used.
@@ -347,6 +362,7 @@ public class Colony implements IColony
         this.permissions = new Permissions(this);
         requestManager = new StandardRequestManager(this);
         researchManager = new ResearchManager(this);
+        questManager = new QuestManager(this);
     }
 
     /**
@@ -357,6 +373,7 @@ public class Colony implements IColony
      */
     protected Colony(final int id, @Nullable final Level world)
     {
+        questManager = new QuestManager(this);
         this.id = id;
         if (world != null)
         {
@@ -366,7 +383,11 @@ public class Colony implements IColony
         }
         this.permissions = new Permissions(this);
         researchManager = new ResearchManager(this);
-        colonyStateMachine = new TickRateStateMachine<>(INACTIVE, e -> {});
+        colonyStateMachine = new TickRateStateMachine<>(INACTIVE, e ->
+        {
+            Log.getLogger().warn("Exception triggered in colony:"+getID()+" in dimension:"+getDimension().location(), e);
+            colonyStateMachine.setCurrentDelay(20 * 60 * 5);
+        });
 
         colonyStateMachine.addTransition(new TickingTransition<>(INACTIVE, () -> true, this::updateState, UPDATE_STATE_INTERVAL));
         colonyStateMachine.addTransition(new TickingTransition<>(UNLOADED, () -> true, this::updateState, UPDATE_STATE_INTERVAL));
@@ -396,13 +417,13 @@ public class Colony implements IColony
 
         if (!packageManager.getCloseSubscribers().isEmpty() || (loadedChunks.size() > 40 && !packageManager.getImportantColonyPlayers().isEmpty()))
         {
-            isActive = true;
+            isDirty = true;
             return ACTIVE;
         }
 
         if (!packageManager.getImportantColonyPlayers().isEmpty() || forceLoadTimer > 0)
         {
-            isActive = true;
+            isDirty = true;
             return UNLOADED;
         }
 
@@ -450,6 +471,7 @@ public class Colony implements IColony
         graveManager.onColonyTick(this);
         workManager.onColonyTick(this);
         reproductionManager.onColonyTick(this);
+        questManager.onColonyTick();
 
         final long currTime = System.currentTimeMillis();
         if (lastOnlineTime != 0)
@@ -482,7 +504,7 @@ public class Colony implements IColony
             {
                 if (getPermissions().hasPermission(sub, Action.CAN_KEEP_COLONY_ACTIVE_WHILE_AWAY))
                 {
-                    this.forceLoadTimer = CHUNK_UNLOAD_DELAY;
+                    this.forceLoadTimer = getConfig().getServer().loadtime.get() * 20 * 60;
                     pendingChunks.addAll(pendingToUnloadChunks);
                     for (final long pending : pendingChunks)
                     {
@@ -729,11 +751,11 @@ public class Colony implements IColony
         buildingManager.read(compound.getCompound(TAG_BUILDING_MANAGER));
 
         // Recalculate max after citizens and buildings are loaded.
-        citizenManager.calculateMaxCitizens();
+        citizenManager.afterBuildingLoad();
 
         graveManager.read(compound.getCompound(TAG_GRAVE_MANAGER));
 
-        if (compound.getAllKeys().contains(TAG_PROGRESS_MANAGER))
+        if (compound.contains(TAG_PROGRESS_MANAGER))
         {
             progressManager.read(compound);
         }
@@ -741,9 +763,10 @@ public class Colony implements IColony
         eventManager.readFromNBT(compound);
         statisticManager.readFromNBT(compound);
 
+        questManager.deserializeNBT(compound.getCompound(TAG_QUEST_MANAGER));
         eventDescManager.deserializeNBT(compound.getCompound(NbtTagConstants.TAG_EVENT_DESC_MANAGER));
 
-        if (compound.getAllKeys().contains(TAG_RESEARCH))
+        if (compound.contains(TAG_RESEARCH))
         {
             researchManager.readFromNBT(compound.getCompound(TAG_RESEARCH));
             // now that buildings, colonists, and research are loaded, check for new autoStartResearch.
@@ -766,27 +789,29 @@ public class Colony implements IColony
         }
 
         // Free blocks
-        freeBlocks.clear();
+        final Set<Block> tempFreeBlocks = new HashSet<>();
         final ListTag freeBlockTagList = compound.getList(TAG_FREE_BLOCKS, Tag.TAG_STRING);
         for (int i = 0; i < freeBlockTagList.size(); ++i)
         {
-            freeBlocks.add(ForgeRegistries.BLOCKS.getValue(new ResourceLocation(freeBlockTagList.getString(i))));
+            tempFreeBlocks.add(ForgeRegistries.BLOCKS.getValue(new ResourceLocation(freeBlockTagList.getString(i))));
         }
+        freeBlocks = ImmutableSet.copyOf(tempFreeBlocks);
 
-        freePositions.clear();
+        final Set<BlockPos> tempFreePositions = new HashSet<>();
         // Free positions
         final ListTag freePositionTagList = compound.getList(TAG_FREE_POSITIONS, Tag.TAG_COMPOUND);
         for (int i = 0; i < freePositionTagList.size(); ++i)
         {
             final CompoundTag blockTag = freePositionTagList.getCompound(i);
             final BlockPos block = BlockPosUtil.read(blockTag, TAG_FREE_POSITIONS);
-            freePositions.add(block);
+            tempFreePositions.add(block);
         }
+        freePositions = ImmutableSet.copyOf(tempFreePositions);
 
         packageManager.setLastContactInHours(compound.getInt(TAG_ABANDONED));
         manualHousing = compound.getBoolean(TAG_MANUAL_HOUSING);
 
-        if (compound.getAllKeys().contains(TAG_MOVE_IN))
+        if (compound.contains(TAG_MOVE_IN))
         {
             moveIn = compound.getBoolean(TAG_MOVE_IN);
         }
@@ -802,7 +827,7 @@ public class Colony implements IColony
 
         raidManager.read(compound);
 
-        if (compound.getAllKeys().contains(TAG_AUTO_DELETE))
+        if (compound.contains(TAG_AUTO_DELETE))
         {
             this.canColonyBeAutoDeleted = compound.getBoolean(TAG_AUTO_DELETE);
         }
@@ -811,20 +836,20 @@ public class Colony implements IColony
             this.canColonyBeAutoDeleted = true;
         }
 
-        if (compound.getAllKeys().contains(TAG_TEAM_COLOR))
+        if (compound.contains(TAG_TEAM_COLOR))
         {
             // This read can occur before the world is non-null, due to Minecraft's order of operations for capabilities.
             // As a result, setColonyColor proper must wait until onWorldLoad fires.
             this.colonyTeamColor = ChatFormatting.values()[compound.getInt(TAG_TEAM_COLOR)];
         }
 
-        if (compound.getAllKeys().contains(TAG_FLAG_PATTERNS))
+        if (compound.contains(TAG_FLAG_PATTERNS))
         {
             this.setColonyFlag(compound.getList(TAG_FLAG_PATTERNS, Constants.TAG_COMPOUND));
         }
 
         this.requestManager.reset();
-        if (compound.getAllKeys().contains(TAG_REQUESTMANAGER))
+        if (compound.contains(TAG_REQUESTMANAGER))
         {
             this.requestManager.deserializeNBT(compound.getCompound(TAG_REQUESTMANAGER));
         }
@@ -897,6 +922,7 @@ public class Colony implements IColony
         eventManager.writeToNBT(compound);
         statisticManager.writeToNBT(compound);
 
+        compound.put(TAG_QUEST_MANAGER, questManager.serializeNBT());
         compound.put(NbtTagConstants.TAG_EVENT_DESC_MANAGER, eventDescManager.serializeNBT());
         raidManager.write(compound);
 
@@ -948,7 +974,7 @@ public class Colony implements IColony
 
         this.colonyTag = compound;
 
-        isActive = false;
+        isDirty = false;
         return compound;
     }
 
@@ -989,6 +1015,7 @@ public class Colony implements IColony
             if (eventHandler == null)
             {
                 eventHandler = new ColonyPermissionEventHandler(this);
+                questManager.onWorldLoad();
                 MinecraftForge.EVENT_BUS.register(eventHandler);
             }
             setColonyColor(this.colonyTeamColor);
@@ -1043,7 +1070,7 @@ public class Colony implements IColony
      */
     public Set<BlockPos> getFreePositions()
     {
-        return new HashSet<>(freePositions);
+        return freePositions;
     }
 
     /**
@@ -1053,7 +1080,7 @@ public class Colony implements IColony
      */
     public Set<Block> getFreeBlocks()
     {
-        return new HashSet<>(freeBlocks);
+        return freeBlocks;
     }
 
     /**
@@ -1063,7 +1090,10 @@ public class Colony implements IColony
      */
     public void addFreePosition(@NotNull final BlockPos pos)
     {
-        freePositions.add(pos);
+        ImmutableSet.Builder<BlockPos> builder = ImmutableSet.builder();
+        builder.addAll(freePositions);
+        builder.add(pos);
+        freePositions = builder.build();
         markDirty();
     }
 
@@ -1074,7 +1104,10 @@ public class Colony implements IColony
      */
     public void addFreeBlock(@NotNull final Block block)
     {
-        freeBlocks.add(block);
+        ImmutableSet.Builder<Block> builder = ImmutableSet.builder();
+        builder.addAll(freeBlocks);
+        builder.add(block);
+        freeBlocks = builder.build();
         markDirty();
     }
 
@@ -1085,7 +1118,15 @@ public class Colony implements IColony
      */
     public void removeFreePosition(@NotNull final BlockPos pos)
     {
-        freePositions.remove(pos);
+        ImmutableSet.Builder<BlockPos> builder = ImmutableSet.builder();
+        for (final BlockPos tempPos : freePositions)
+        {
+            if (!pos.equals(tempPos))
+            {
+                builder.add(tempPos);
+            }
+        }
+        freePositions = builder.build();
         markDirty();
     }
 
@@ -1096,7 +1137,15 @@ public class Colony implements IColony
      */
     public void removeFreeBlock(@NotNull final Block block)
     {
-        freeBlocks.remove(block);
+        ImmutableSet.Builder<Block> builder = ImmutableSet.builder();
+        for (final Block tempBlock : freeBlocks)
+        {
+            if (block != tempBlock)
+            {
+                builder.add(tempBlock);
+            }
+        }
+        freeBlocks = builder.build();
         markDirty();
     }
 
@@ -1303,7 +1352,7 @@ public class Colony implements IColony
     public void markDirty()
     {
         packageManager.setDirty();
-        isActive = true;
+        isDirty = true;
     }
 
     @Override
@@ -1458,7 +1507,7 @@ public class Colony implements IColony
         double happinessSum = 0;
         for (final ICitizenData citizen : citizenManager.getCitizens())
         {
-            happinessSum += citizen.getCitizenHappinessHandler().getHappiness(citizen.getColony());
+            happinessSum += citizen.getCitizenHappinessHandler().getHappiness(citizen.getColony(), citizen);
         }
         return happinessSum / citizenManager.getCitizens().size();
     }
@@ -1658,7 +1707,7 @@ public class Colony implements IColony
     {
         try
         {
-            if (this.colonyTag == null || this.isActive)
+            if (this.colonyTag == null || this.isDirty)
             {
                 this.write(new CompoundTag());
             }
@@ -1762,6 +1811,7 @@ public class Colony implements IColony
      *
      * @return the ChatFormatting enum color.
      */
+    @Override
     public ChatFormatting getTeamColonyColor()
     {
         return colonyTeamColor;
@@ -1773,16 +1823,19 @@ public class Colony implements IColony
      * @return the list of pattern-color pairs
      */
     @Override
-    public ListTag getColonyFlag() { return colonyFlag; }
+    public ListTag getColonyFlag()
+    {
+        return colonyFlag;
+    }
 
     /**
-     * Set the colony to be active.
+     * Set the colony to be dirty.
      *
-     * @param isActive if active.
+     * @param dirty if dirty.
      */
-    public void setActive(final boolean isActive)
+    public void setDirty(final boolean dirty)
     {
-        this.isActive = isActive;
+        this.isDirty = dirty;
     }
 
     /**
@@ -1864,6 +1917,12 @@ public class Colony implements IColony
     }
 
     @Override
+    public Set<Long> getLoadedChunks()
+    {
+        return loadedChunks;
+    }
+
+    @Override
     public ColonyState getState()
     {
         return colonyStateMachine.getState();
@@ -1897,6 +1956,13 @@ public class Colony implements IColony
     @Override
     public String getTextureStyleId()
     {
+        if (MineColonies.getConfig().getServer().holidayFeatures.get() &&
+              (LocalDateTime.now().getDayOfMonth() >= 29 && LocalDateTime.now().getMonth() == Month.OCTOBER)
+                 || (LocalDateTime.now().getDayOfMonth() <= 2 && LocalDateTime.now().getMonth() == Month.NOVEMBER))
+        {
+            return "nether";
+        }
+
         return this.textureStyle;
     }
 
@@ -1933,5 +1999,17 @@ public class Colony implements IColony
     public int getDay()
     {
         return day;
+    }
+
+    @Override
+    public IQuestManager getQuestManager()
+    {
+        return questManager;
+    }
+
+    @Override
+    public ICitizen getCitizen(final int id)
+    {
+        return citizenManager.getCivilian(id);
     }
 }

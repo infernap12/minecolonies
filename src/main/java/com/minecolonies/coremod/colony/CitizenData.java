@@ -5,6 +5,8 @@ import com.minecolonies.api.colony.CitizenNameFile;
 import com.minecolonies.api.colony.ICitizenData;
 import com.minecolonies.api.colony.IColony;
 import com.minecolonies.api.colony.buildings.IBuilding;
+import com.minecolonies.api.colony.buildings.modules.IAssignsJob;
+import com.minecolonies.api.colony.buildings.modules.IBuildingModule;
 import com.minecolonies.api.colony.interactionhandling.ChatPriority;
 import com.minecolonies.api.colony.interactionhandling.IInteractionResponseHandler;
 import com.minecolonies.api.colony.jobs.IJob;
@@ -17,41 +19,42 @@ import com.minecolonies.api.entity.citizen.Skill;
 import com.minecolonies.api.entity.citizen.VisibleCitizenStatus;
 import com.minecolonies.api.entity.citizen.citizenhandlers.ICitizenSkillHandler;
 import com.minecolonies.api.inventory.InventoryCitizen;
+import com.minecolonies.api.quests.IQuestDeliveryObjective;
+import com.minecolonies.api.quests.IQuestInstance;
+import com.minecolonies.api.quests.IQuestManager;
 import com.minecolonies.api.util.*;
 import com.minecolonies.api.util.constant.Suppression;
 import com.minecolonies.coremod.MineColonies;
 import com.minecolonies.coremod.colony.buildings.modules.LivingBuildingModule;
 import com.minecolonies.coremod.colony.buildings.modules.WorkerBuildingModule;
+import com.minecolonies.coremod.colony.interactionhandling.QuestDeliveryInteraction;
+import com.minecolonies.coremod.colony.interactionhandling.QuestDialogueInteraction;
 import com.minecolonies.coremod.colony.interactionhandling.ServerCitizenInteraction;
 import com.minecolonies.coremod.colony.interactionhandling.StandardInteraction;
-import com.minecolonies.coremod.entity.ai.basic.AbstractAISkeleton;
 import com.minecolonies.coremod.entity.citizen.EntityCitizen;
 import com.minecolonies.coremod.entity.citizen.citizenhandlers.CitizenHappinessHandler;
 import com.minecolonies.coremod.entity.citizen.citizenhandlers.CitizenMournHandler;
 import com.minecolonies.coremod.entity.citizen.citizenhandlers.CitizenSkillHandler;
 import com.minecolonies.coremod.util.AttributeModifierUtils;
+import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.*;
+import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.InteractionHand;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.Tag;
-import net.minecraft.nbt.IntTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-
+import org.apache.logging.log4j.Level;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.lang.ref.WeakReference;
 import java.util.*;
-import java.util.stream.Collectors;
 
 import static com.minecolonies.api.entity.citizen.AbstractEntityCitizen.*;
 import static com.minecolonies.api.research.util.ResearchConstants.HEALTH_BOOST;
@@ -59,8 +62,11 @@ import static com.minecolonies.api.research.util.ResearchConstants.WALKING;
 import static com.minecolonies.api.util.ItemStackUtils.CAN_EAT;
 import static com.minecolonies.api.util.constant.BuildingConstants.TAG_ACTIVE;
 import static com.minecolonies.api.util.constant.CitizenConstants.*;
+import static com.minecolonies.api.util.constant.ColonyConstants.UPDATE_SUBSCRIBERS_INTERVAL;
+import static com.minecolonies.api.util.constant.Constants.TAG_STRING;
 import static com.minecolonies.api.util.constant.NbtTagConstants.*;
 import static com.minecolonies.api.util.constant.TranslationConstants.*;
+import static com.minecolonies.api.util.constant.translation.DebugTranslationConstants.DEBUG_WARNING_CITIZEN_LOAD_FAILURE;
 
 /**
  * Extra data for Citizens.
@@ -71,7 +77,7 @@ public class CitizenData implements ICitizenData
     /**
      * The max health.
      */
-    private static final float MAX_HEALTH = 20.0F;
+    public static final float MAX_HEALTH = 20.0F;
 
     /**
      * Max levels of an attribute a citizen may initially have.
@@ -87,6 +93,11 @@ public class CitizenData implements ICitizenData
      * Possible texture suffixes.
      */
     public static final List<String> SUFFIXES = Arrays.asList("_b", "_d", "_a", "_w");
+
+    /**
+     * Number of sound profiles.
+     */
+    private static final int NUM_SOUND_PROFILES = 4;
 
     /**
      * The unique citizen id.
@@ -155,12 +166,6 @@ public class CitizenData implements ICitizenData
     private IBuilding homeBuilding;
 
     /**
-     * The work building of the citizen.
-     */
-    @Nullable
-    private IBuilding workBuilding;
-
-    /**
      * The job of the citizen.
      */
     private IJob<?> job;
@@ -168,7 +173,7 @@ public class CitizenData implements ICitizenData
     /**
      * If the citizen is dirty (Has to be updated on client side).
      */
-    private boolean dirty;
+    private int dirty = Integer.MAX_VALUE;
 
     /**
      * Its entitity.
@@ -227,6 +232,11 @@ public class CitizenData implements ICitizenData
     private VisibleCitizenStatus status;
 
     /**
+     * The current location of interest.
+     */
+    @Nullable private BlockPos statusPosition;
+
+    /**
      * The citizen data random.
      */
     private Random random = new Random();
@@ -272,6 +282,31 @@ public class CitizenData implements ICitizenData
     private int inactivityTimer = DISABLED;
 
     /**
+     * The list of available quests the citizen can give out.
+     */
+    private final List<ResourceLocation> availableQuests = new ArrayList<>();
+
+    /**
+     * The list of participating quests the citizen can give out.
+     */
+    private final List<ResourceLocation> participatingQuests = new ArrayList<>();
+
+    /**
+     * Tracking quests the citizen was the quest giver in.
+     */
+    private final List<ResourceLocation> finishedQuests = new ArrayList<>();
+
+    /**
+     * Tracking quests the citizen participated in.
+     */
+    private final List<ResourceLocation> finishedQuestParticipation = new ArrayList<>();
+
+    /**
+     * The sound profile index.
+     */
+    private int soundProfile;
+
+    /**
      * Create a CitizenData given an ID. Used as a super-constructor or during loading.
      *
      * @param id     ID of the Citizen.
@@ -288,12 +323,12 @@ public class CitizenData implements ICitizenData
     }
 
     @Override
-    public void onResponseTriggered(@NotNull final Component key, @NotNull final Component response, final Player player)
+    public void onResponseTriggered(@NotNull final Component key, final int responseId, final Player player)
     {
         if (citizenChatOptions.containsKey(key))
         {
-            citizenChatOptions.get(key).onServerResponseTriggered(response, player, this);
-            markDirty();
+            citizenChatOptions.get(key).onServerResponseTriggered(responseId, player, this);
+            markDirty(0);
         }
     }
 
@@ -308,6 +343,12 @@ public class CitizenData implements ICitizenData
     {
         final AbstractEntityCitizen citizen = entity.get();
         return Optional.ofNullable(citizen);
+    }
+
+    @Override
+    public int getSoundProfile()
+    {
+        return soundProfile;
     }
 
     @Override
@@ -326,16 +367,19 @@ public class CitizenData implements ICitizenData
     }
 
     @Override
-    public void markDirty()
+    public void markDirty(final int time)
     {
-        dirty = true;
-        colony.getCitizenManager().markDirty();
+        dirty = Math.min(dirty, time);
+        if (isDirty())
+        {
+            colony.getCitizenManager().markDirty();
+        }
     }
 
     /**
      * Returns a random element in a list.
      *
-     * @param rand  Random object.
+     * @param rand Random object.
      * @param list Array to select from.
      * @return Random element from array.
      */
@@ -402,6 +446,7 @@ public class CitizenData implements ICitizenData
         //Assign the gender before name
         female = random.nextBoolean();
         textureSuffix = SUFFIXES.get(random.nextInt(SUFFIXES.size()));
+        soundProfile = random.nextInt(NUM_SOUND_PROFILES);
         paused = false;
         name = generateName(random, female, getColony(), getColony().getCitizenNameFile());
         textureId = random.nextInt(255);
@@ -411,7 +456,7 @@ public class CitizenData implements ICitizenData
 
         citizenSkillHandler.init(levelCap);
 
-        markDirty();
+        markDirty(0);
     }
 
     /**
@@ -449,6 +494,11 @@ public class CitizenData implements ICitizenData
         citizen.getEntityData().set(DATA_JOB, getJob() == null ? "" : getJob().getJobRegistryEntry().getKey().toString());
         citizen.getEntityData().set(DATA_STYLE, colony.getTextureStyleId());
 
+        if (getBedPos().equals(BlockPos.ZERO))
+        {
+            citizen.getCitizenSleepHandler().onWakeUp();
+        }
+
         citizen.getCitizenExperienceHandler().updateLevel();
 
         setLastPosition(citizen.blockPosition());
@@ -459,7 +509,7 @@ public class CitizenData implements ICitizenData
 
         applyItemModifiers(citizen);
 
-        markDirty();
+        markDirty(0);
     }
 
     /**
@@ -471,7 +521,16 @@ public class CitizenData implements ICitizenData
     {
         for (final EquipmentSlot slot : EquipmentSlot.values())
         {
-            final ItemStack stack = citizen.getItemBySlot(slot);
+            final ItemStack stack;
+            if (slot.getType() == EquipmentSlot.Type.ARMOR)
+            {
+                stack = citizen.getInventoryCitizen().getArmorInSlot(slot);
+            }
+            else
+            {
+                stack = citizen.getItemBySlot(slot);
+            }
+
             if (!ItemStackUtils.isEmpty(stack))
             {
                 citizen.getAttributes().addTransientAttributeModifiers(stack.getAttributeModifiers(slot));
@@ -482,7 +541,7 @@ public class CitizenData implements ICitizenData
     /**
      * Generates a random name from a set of names.
      *
-     * @param rand Random object.
+     * @param rand   Random object.
      * @param female the gender
      * @param colony the colony.
      * @return Name of the citizen.
@@ -587,7 +646,7 @@ public class CitizenData implements ICitizenData
         {
             if (nameFile.parts == 3)
             {
-                middleInitial = firstParentNameSplit[eastern? 0 : firstParentNameSplit.length - 1].substring(0, 1);
+                middleInitial = firstParentNameSplit[eastern ? 0 : firstParentNameSplit.length - 1].substring(0, 1);
                 lastName = secondParentNameSplit[eastern ? 0 : secondParentNameSplit.length - 1];
             }
             else
@@ -654,7 +713,8 @@ public class CitizenData implements ICitizenData
     @Override
     public boolean isRelatedTo(final ICitizenData data)
     {
-        return siblings.contains(data.getId()) || children.contains(data.getId()) || partner == data.getId() || parents.getA().equals(data.getName()) || parents.getB().equals(data.getName());
+        return siblings.contains(data.getId()) || children.contains(data.getId()) || partner == data.getId() || parents.getA().equals(data.getName()) || parents.getB()
+          .equals(data.getName());
     }
 
     @Override
@@ -680,7 +740,7 @@ public class CitizenData implements ICitizenData
     {
         this.female = isFemale;
         this.name = generateName(random, isFemale, getColony(), getColony().getCitizenNameFile());
-        markDirty();
+        markDirty(0);
     }
 
     @Override
@@ -693,7 +753,7 @@ public class CitizenData implements ICitizenData
     public void setPaused(final boolean p)
     {
         this.paused = p;
-        markDirty();
+        markDirty(40);
     }
 
     @Override
@@ -711,13 +771,25 @@ public class CitizenData implements ICitizenData
     @Override
     public boolean isDirty()
     {
-        return dirty;
+        return dirty <= 0;
     }
 
     @Override
     public void clearDirty()
     {
-        dirty = false;
+        if (isDirty())
+        {
+            dirty = Integer.MAX_VALUE;
+        }
+
+        if (dirty > 0)
+        {
+            dirty -= UPDATE_SUBSCRIBERS_INTERVAL;
+            if (isDirty())
+            {
+                colony.getCitizenManager().markDirty();
+            }
+        }
     }
 
     @Override
@@ -726,11 +798,6 @@ public class CitizenData implements ICitizenData
         if (homeBuilding != null && homeBuilding.getID().equals(building.getID()))
         {
             setHomeBuilding(null);
-        }
-
-        if (workBuilding != null && workBuilding.getID().equals(building.getID()))
-        {
-            setWorkBuilding(null);
         }
     }
 
@@ -750,7 +817,7 @@ public class CitizenData implements ICitizenData
         }
 
         homeBuilding = building;
-        markDirty();
+        markDirty(0);
 
         if (getEntity().isPresent() && getEntity().get().getCitizenJobHandler().getColonyJob() == null)
         {
@@ -764,53 +831,11 @@ public class CitizenData implements ICitizenData
     @Nullable
     public IBuilding getWorkBuilding()
     {
-        if (job == null && workBuilding != null)
+        if (job == null)
         {
-            setWorkBuilding(null);
+            return null;
         }
-        return workBuilding;
-    }
-
-    @Override
-    public void setWorkBuilding(@Nullable final IBuilding building)
-    {
-        if (workBuilding != null && building != null && workBuilding != building)
-        {
-            Log.getLogger().warn("CitizenData.setWorkBuilding() - already assigned a work building when setting a new work building");
-        }
-        else if (workBuilding != building)
-        {
-            workBuilding = building;
-
-            if (workBuilding != null)
-            {
-                //  We have a place to work, do we have the assigned Job?
-                if (job == null)
-                {
-                    // If this is null, something is very wrong!
-                    final WorkerBuildingModule module = building.getModuleMatching(WorkerBuildingModule.class, m -> m.getAssignedCitizen().contains(this));
-                    //  No job, create one!
-                    setJob(module.createJob(this));
-                    colony.getWorkManager().clearWorkForCitizen(this);
-                }
-            }
-            else if (job != null)
-            {
-                getEntity().ifPresent(entityCitizen -> {
-                    entityCitizen.getTasks()
-                      .availableGoals.stream()
-                      .filter(task -> task.getGoal() instanceof AbstractAISkeleton)
-                      .findFirst()
-                      .ifPresent(e -> entityCitizen.getTasks().removeGoal(e));
-                });
-
-                //  No place of employment, get rid of our job
-                setJob(null);
-                colony.getWorkManager().clearWorkForCitizen(this);
-            }
-
-            markDirty();
-        }
+        return job.getWorkBuilding();
     }
 
     @Override
@@ -847,13 +872,15 @@ public class CitizenData implements ICitizenData
     {
         if (this.job != null && job == null)
         {
-            this.job.onRemoval();
+            final IJob oldJob = this.job;
+            this.job = null;
+            oldJob.onRemoval();
         }
         this.job = job;
 
         getEntity().ifPresent(entityCitizen -> entityCitizen.getCitizenJobHandler().onJobChanged(job));
 
-        markDirty();
+        markDirty(0);
     }
 
     @Override
@@ -886,18 +913,14 @@ public class CitizenData implements ICitizenData
             buf.writeBlockPos(homeBuilding.getID());
         }
 
-        buf.writeBoolean(workBuilding != null);
-        if (workBuilding != null)
+        buf.writeBoolean(getWorkBuilding() != null);
+        if (getWorkBuilding() != null)
         {
-            buf.writeBlockPos(workBuilding.getID());
+            buf.writeBlockPos(getWorkBuilding().getID());
         }
 
-        // If the entity is not present we assumes standard values.
-        buf.writeFloat(getEntity().map(AbstractEntityCitizen::getHealth).orElse(MAX_HEALTH));
-        buf.writeFloat(getEntity().map(AbstractEntityCitizen::getMaxHealth).orElse(MAX_HEALTH));
-
         buf.writeDouble(getSaturation());
-        buf.writeDouble(citizenHappinessHandler.getHappiness(getColony()));
+        buf.writeDouble(citizenHappinessHandler.getHappiness(getColony(), this));
 
         buf.writeNbt(citizenSkillHandler.write());
 
@@ -906,13 +929,13 @@ public class CitizenData implements ICitizenData
         buf.writeInt(colony.getID());
 
         final CompoundTag compound = new CompoundTag();
-        compound.put("inventory", inventory.write(new ListTag()));
+        inventory.write(compound);
         buf.writeNbt(compound);
         buf.writeBlockPos(lastPosition);
 
         if (colony.getWorld() != null)
         {
-            final List<IInteractionResponseHandler> subInteractions = citizenChatOptions.values().stream().filter(e -> e.isVisible(colony.getWorld())).collect(Collectors.toList());
+            final List<IInteractionResponseHandler> subInteractions = citizenChatOptions.values().stream().filter(e -> e.isVisible(colony.getWorld())).toList();
 
             buf.writeInt(subInteractions.size());
             for (final IInteractionResponseHandler interactionHandler : subInteractions)
@@ -930,6 +953,12 @@ public class CitizenData implements ICitizenData
         buf.writeNbt(happinessCompound);
 
         buf.writeInt(status != null ? status.getId() : -1);
+
+        buf.writeBoolean(statusPosition != null);
+        if (statusPosition != null)
+        {
+            buf.writeBlockPos(statusPosition);
+        }
 
         buf.writeBoolean(job != null);
         if (job != null)
@@ -958,6 +987,18 @@ public class CitizenData implements ICitizenData
         }
         buf.writeUtf(parents.getA());
         buf.writeUtf(parents.getB());
+
+        buf.writeInt(availableQuests.size());
+        for (final ResourceLocation av : availableQuests)
+        {
+            buf.writeResourceLocation(av);
+        }
+
+        buf.writeInt(participatingQuests.size());
+        for (final ResourceLocation av : participatingQuests)
+        {
+            buf.writeResourceLocation(av);
+        }
     }
 
     @Override
@@ -1078,7 +1119,7 @@ public class CitizenData implements ICitizenData
     public void setIsChild(final boolean isChild)
     {
         this.isChild = isChild;
-        markDirty();
+        markDirty(0);
 
         if (colony != null)
         {
@@ -1112,6 +1153,7 @@ public class CitizenData implements ICitizenData
         nbtTagCompound.putInt(TAG_ID, id);
         nbtTagCompound.putString(TAG_NAME, name);
         nbtTagCompound.putString(TAG_SUFFIX, textureSuffix);
+        nbtTagCompound.putInt(TAG_SOUND_PROFILE, soundProfile);
 
         nbtTagCompound.putBoolean(TAG_FEMALE, female);
         nbtTagCompound.putBoolean(TAG_PAUSED, paused);
@@ -1136,7 +1178,7 @@ public class CitizenData implements ICitizenData
         citizenHappinessHandler.write(nbtTagCompound);
         citizenMournHandler.write(nbtTagCompound);
 
-        nbtTagCompound.put(TAG_INVENTORY, inventory.write(new ListTag()));
+        inventory.write(nbtTagCompound);
         nbtTagCompound.putInt(TAG_HELD_ITEM_SLOT, inventory.getHeldItemSlot(InteractionHand.MAIN_HAND));
         nbtTagCompound.putInt(TAG_OFFHAND_HELD_ITEM_SLOT, inventory.getHeldItemSlot(InteractionHand.OFF_HAND));
 
@@ -1174,6 +1216,36 @@ public class CitizenData implements ICitizenData
         nbtTagCompound.putInt(TAG_PARTNER, partner);
         nbtTagCompound.putBoolean(TAG_ACTIVE, this.isWorking);
 
+
+        @NotNull final ListTag avQuestNBT = new ListTag();
+        for (final ResourceLocation quest : availableQuests)
+        {
+            avQuestNBT.add(StringTag.valueOf(quest.toString()));
+        }
+        nbtTagCompound.put(TAG_AV_QUESTS, avQuestNBT);
+
+        @NotNull final ListTag partQuestNBT = new ListTag();
+        for (final ResourceLocation quest : participatingQuests)
+        {
+            partQuestNBT.add(StringTag.valueOf(quest.toString()));
+        }
+        nbtTagCompound.put(TAG_PART_QUESTS, partQuestNBT);
+
+        @NotNull final ListTag finishedQuestNBT = new ListTag();
+        for (final ResourceLocation quest : finishedQuests)
+        {
+            finishedQuestNBT.add(StringTag.valueOf(quest.toString()));
+        }
+        nbtTagCompound.put(TAG_FINISHED_AV_QUESTS, finishedQuestNBT);
+
+        @NotNull final ListTag finishedPartQuestNBT = new ListTag();
+        for (final ResourceLocation quest : finishedQuestParticipation)
+        {
+            finishedPartQuestNBT.add(StringTag.valueOf(quest.toString()));
+        }
+        nbtTagCompound.put(TAG_FINISHED_PART_QUESTS, finishedPartQuestNBT);
+
+
         return nbtTagCompound;
     }
 
@@ -1186,13 +1258,22 @@ public class CitizenData implements ICitizenData
         isChild = nbtTagCompound.getBoolean(TAG_CHILD);
         textureId = nbtTagCompound.getInt(TAG_TEXTURE);
 
-        if (nbtTagCompound.getAllKeys().contains(TAG_SUFFIX))
+        if (nbtTagCompound.contains(TAG_SUFFIX))
         {
             textureSuffix = nbtTagCompound.getString(TAG_SUFFIX);
         }
         else
         {
             textureSuffix = SUFFIXES.get(random.nextInt(SUFFIXES.size()));
+        }
+
+        if (nbtTagCompound.contains(TAG_SOUND_PROFILE))
+        {
+            soundProfile = nbtTagCompound.getInt(TAG_SOUND_PROFILE);
+        }
+        else
+        {
+            soundProfile = random.nextInt(NUM_SOUND_PROFILES);
         }
 
         lastPosition = BlockPosUtil.read(nbtTagCompound, TAG_POS);
@@ -1206,15 +1287,14 @@ public class CitizenData implements ICitizenData
 
         saturation = nbtTagCompound.getDouble(TAG_SATURATION);
 
-        if (nbtTagCompound.getAllKeys().contains("job"))
+        if (nbtTagCompound.contains("job"))
         {
             setJob(IJobDataManager.getInstance().createFrom(this, nbtTagCompound.getCompound("job")));
         }
 
-        if (nbtTagCompound.getAllKeys().contains(TAG_INVENTORY))
+        if (nbtTagCompound.contains(TAG_INVENTORY))
         {
-            final ListTag nbttaglist = nbtTagCompound.getList(TAG_INVENTORY, 10);
-            this.inventory.read(nbttaglist);
+            this.inventory.read(nbtTagCompound);
             this.inventory.setHeldItem(InteractionHand.MAIN_HAND, nbtTagCompound.getInt(TAG_HELD_ITEM_SLOT));
             this.inventory.setHeldItem(InteractionHand.OFF_HAND, nbtTagCompound.getInt(TAG_OFFHAND_HELD_ITEM_SLOT));
         }
@@ -1224,37 +1304,44 @@ public class CitizenData implements ICitizenData
             name = generateName(random, isFemale(), getColony(), getColony().getCitizenNameFile());
         }
 
-        if (nbtTagCompound.getAllKeys().contains(TAG_ASLEEP))
+        if (nbtTagCompound.contains(TAG_ASLEEP))
         {
             bedPos = BlockPosUtil.read(nbtTagCompound, TAG_BEDS);
             isAsleep = nbtTagCompound.getBoolean(TAG_ASLEEP);
         }
 
-        if (nbtTagCompound.getAllKeys().contains(TAG_JUST_ATE))
+        if (nbtTagCompound.contains(TAG_JUST_ATE))
         {
             justAte = nbtTagCompound.getBoolean(TAG_JUST_ATE);
         }
 
         //  Citizen chat options.
-        if (nbtTagCompound.getAllKeys().contains(TAG_CHAT_OPTIONS))
+        if (nbtTagCompound.contains(TAG_CHAT_OPTIONS))
         {
             final ListTag handlerTagList = nbtTagCompound.getList(TAG_CHAT_OPTIONS, Tag.TAG_COMPOUND);
             for (int i = 0; i < handlerTagList.size(); ++i)
             {
-                final ServerCitizenInteraction handler =
-                  (ServerCitizenInteraction) MinecoloniesAPIProxy.getInstance()
-                                               .getInteractionResponseHandlerDataManager()
-                                               .createFrom(this, handlerTagList.getCompound(i).getCompound(TAG_CHAT_OPTION));
-                citizenChatOptions.put(handler.getInquiry(), handler);
+                try
+                {
+                    final ServerCitizenInteraction handler =
+                      (ServerCitizenInteraction) MinecoloniesAPIProxy.getInstance()
+                        .getInteractionResponseHandlerDataManager()
+                        .createFrom(this, handlerTagList.getCompound(i).getCompound(TAG_CHAT_OPTION));
+                    citizenChatOptions.put(handler.getId(), handler);
+                }
+                catch (final Exception ex)
+                {
+                    Log.getLogger().warn("Failed to load Interaction for a quest. Did the quest vanish?", ex);
+                }
             }
         }
 
         this.citizenHappinessHandler.read(nbtTagCompound);
         this.citizenMournHandler.read(nbtTagCompound);
 
-        if (nbtTagCompound.getAllKeys().contains(TAG_LEVEL_MAP) && !nbtTagCompound.getAllKeys().contains(TAG_NEW_SKILLS))
+        if (nbtTagCompound.contains(TAG_LEVEL_MAP) && !nbtTagCompound.contains(TAG_NEW_SKILLS))
         {
-            citizenSkillHandler.init((int) citizenHappinessHandler.getHappiness(getColony()));
+            citizenSkillHandler.init((int) citizenHappinessHandler.getHappiness(getColony(), this));
             final Map<String, Integer> levels = new HashMap<>();
             final ListTag levelTagList = nbtTagCompound.getList(TAG_LEVEL_MAP, Tag.TAG_COMPOUND);
             for (int i = 0; i < levelTagList.size(); ++i)
@@ -1295,10 +1382,64 @@ public class CitizenData implements ICitizenData
 
         partner = nbtTagCompound.getInt(TAG_PARTNER);
         this.isWorking = nbtTagCompound.getBoolean(TAG_ACTIVE);
+
+        @NotNull final ListTag availQuestNbt = nbtTagCompound.getList(TAG_AV_QUESTS, TAG_STRING);
+        for (int i = 0; i < availQuestNbt.size(); i++)
+        {
+            availableQuests.add(new ResourceLocation(availQuestNbt.getString(i)));
+        }
+
+        @NotNull final ListTag partQuestsNbt = nbtTagCompound.getList(TAG_PART_QUESTS, TAG_STRING);
+        for (int i = 0; i < partQuestsNbt.size(); i++)
+        {
+            participatingQuests.add(new ResourceLocation(partQuestsNbt.getString(i)));
+        }
+
+        @NotNull final ListTag finQuestNbt = nbtTagCompound.getList(TAG_FINISHED_AV_QUESTS, TAG_STRING);
+        for (int i = 0; i < finQuestNbt.size(); i++)
+        {
+            finishedQuests.add(new ResourceLocation(finQuestNbt.getString(i)));
+        }
+
+        @NotNull final ListTag finPartQuestsNbt = nbtTagCompound.getList(TAG_FINISHED_PART_QUESTS, TAG_STRING);
+        for (int i = 0; i < finPartQuestsNbt.size(); i++)
+        {
+            finishedQuestParticipation.add(new ResourceLocation(finPartQuestsNbt.getString(i)));
+        }
     }
 
     @Override
-    public void tick()
+    public void onBuildingLoad()
+    {
+        if (job == null || job.getBuildingPos() == null)
+        {
+            return;
+        }
+
+        if (job.getBuildingPos() != null && job.getWorkBuilding() == null)
+        {
+            final IBuilding building = colony.getBuildingManager().getBuilding(job.getBuildingPos());
+
+            if (building != null)
+            {
+                for (final IAssignsJob module : building.getModules(IAssignsJob.class))
+                {
+                    if (module.getJobEntry().equals(job.getJobRegistryEntry()) && module.assignCitizen(this))
+                    {
+                        break;
+                    }
+                }
+            }
+
+            if (building == null || job.getWorkBuilding() == null)
+            {
+                setJob(null);
+            }
+        }
+    }
+
+    @Override
+    public void update()
     {
         if (!getEntity().isPresent() || !getEntity().get().isAlive())
         {
@@ -1331,17 +1472,17 @@ public class CitizenData implements ICitizenData
 
         if (!toRemove.isEmpty())
         {
-            markDirty();
+            markDirty(20 * 10);
         }
 
         for (final IInteractionResponseHandler handler : toRemove)
         {
-            citizenChatOptions.remove(handler.getInquiry());
+            citizenChatOptions.remove(handler.getId());
             for (final Component comp : handler.getPossibleResponses())
             {
                 if (citizenChatOptions.containsKey(handler.getResponseResult(comp)))
                 {
-                    citizenChatOptions.get(handler.getResponseResult(comp)).removeParent(handler.getInquiry());
+                    citizenChatOptions.get(handler.getResponseResult(comp)).removeParent(handler.getId());
                 }
             }
         }
@@ -1350,14 +1491,14 @@ public class CitizenData implements ICitizenData
     @Override
     public void triggerInteraction(@NotNull final IInteractionResponseHandler handler)
     {
-        if (!this.citizenChatOptions.containsKey(handler.getInquiry()))
+        if (!this.citizenChatOptions.containsKey(handler.getId()))
         {
-            this.citizenChatOptions.put(handler.getInquiry(), handler);
+            this.citizenChatOptions.put(handler.getId(), handler);
             for (final IInteractionResponseHandler childHandler : handler.genChildInteractions())
             {
-                this.citizenChatOptions.put(childHandler.getInquiry(), (ServerCitizenInteraction) childHandler);
+                this.citizenChatOptions.put(childHandler.getId(), (ServerCitizenInteraction) childHandler);
             }
-            markDirty();
+            markDirty(20 * 5);
         }
     }
 
@@ -1429,9 +1570,25 @@ public class CitizenData implements ICitizenData
     {
         if (this.status != status)
         {
-            markDirty();
+            markDirty(20);
         }
         this.status = status;
+    }
+
+    @Override
+    public @Nullable BlockPos getStatusPosition()
+    {
+        return this.statusPosition;
+    }
+
+    @Override
+    public void setStatusPosition(@Nullable BlockPos pos)
+    {
+        if (!Objects.equals(this.statusPosition, pos))
+        {
+            this.statusPosition = pos;
+            markDirty(20);
+        }
     }
 
     /**
@@ -1471,7 +1628,9 @@ public class CitizenData implements ICitizenData
             AttributeModifierUtils.addModifier(citizen, speedModifier, Attributes.MOVEMENT_SPEED);
 
             final AttributeModifier healthModLevel =
-              new AttributeModifier(HEALTH_BOOST.toString(), colony.getResearchManager().getResearchEffects().getEffectStrength(HEALTH_BOOST), AttributeModifier.Operation.ADDITION);
+              new AttributeModifier(HEALTH_BOOST.toString(),
+                colony.getResearchManager().getResearchEffects().getEffectStrength(HEALTH_BOOST),
+                AttributeModifier.Operation.ADDITION);
             AttributeModifierUtils.addHealthModifier(citizen, healthModLevel);
         }
     }
@@ -1484,7 +1643,7 @@ public class CitizenData implements ICitizenData
             return;
         }
 
-        if (workBuilding != null && !workBuilding.isGuardBuildingNear() && !WorldUtil.isPeaceful(colony.getWorld()))
+        if (job != null && job.getWorkBuilding() != null && !job.getWorkBuilding().isGuardBuildingNear() && !WorldUtil.isPeaceful(colony.getWorld()))
         {
             triggerInteraction(new StandardInteraction(Component.translatable(CITIZEN_NOT_GUARD_NEAR_WORK),
               Component.translatable(CITIZEN_NOT_GUARD_NEAR_WORK),
@@ -1497,6 +1656,8 @@ public class CitizenData implements ICitizenData
               Component.translatable(CITIZEN_NOT_GUARD_NEAR_HOME),
               ChatPriority.CHITCHAT));
         }
+
+        decreaseSaturation(job == null || job.getWorkBuilding().getBuildingLevel() == 0 ? 1 : (SATURATION_DECREASE_FACTOR * Math.pow(2, job.getWorkBuilding().getBuildingLevel())) * 2);
     }
 
     @Override
@@ -1531,9 +1692,8 @@ public class CitizenData implements ICitizenData
     @Override
     public void onResurrect()
     {
-        this.workBuilding = null;
         this.homeBuilding = null;
-        this.job = null;
+        setJob(null);
     }
 
     @Override
@@ -1613,5 +1773,72 @@ public class CitizenData implements ICitizenData
     public void setParents(final String firstParent, final String secondParent)
     {
         this.parents = new Tuple<>(firstParent, secondParent);
+    }
+
+    @Override
+    public void setIdleDays(final int days)
+    {
+
+    }
+
+    @Override
+    public void assignQuest(final IQuestInstance quest)
+    {
+        this.availableQuests.add(quest.getId());
+    }
+
+    @Override
+    public void openDialogue(final IQuestInstance quest, final int index)
+    {
+        final Component comp = Component.literal(quest.getId().toString());
+        if (IQuestManager.GLOBAL_SERVER_QUESTS.get(quest.getId()).getObjective(index) instanceof IQuestDeliveryObjective)
+        {
+            citizenChatOptions.put(comp, new QuestDeliveryInteraction(comp, ChatPriority.CHITCHAT, quest.getId(), index, this));
+        }
+        else
+        {
+            citizenChatOptions.put(comp, new QuestDialogueInteraction(comp, ChatPriority.CHITCHAT, quest.getId(), index, this));
+        }
+        this.markDirty(0);
+    }
+
+    @Override
+    public void addQuestParticipation(final IQuestInstance quest)
+    {
+        this.participatingQuests.add(quest.getId());
+    }
+
+    @Override
+    public void onQuestDeletion(final ResourceLocation questId)
+    {
+        this.availableQuests.remove(questId);
+        this.participatingQuests.remove(questId);
+    }
+
+    @Override
+    public boolean isParticipantOfQuest(final ResourceLocation questId)
+    {
+        return this.availableQuests.contains(questId) || this.participatingQuests.contains(questId);
+    }
+
+    @Override
+    public void onQuestCompletion(final ResourceLocation questId)
+    {
+        if (this.availableQuests.contains(questId))
+        {
+            this.availableQuests.remove(questId);
+            this.finishedQuests.add(questId);
+        }
+        else if (this.participatingQuests.contains(questId))
+        {
+            this.participatingQuests.remove(questId);
+            this.finishedQuestParticipation.add(questId);
+        }
+    }
+
+    @Override
+    public void onInteractionClosed(final Component key, final ServerPlayer sender)
+    {
+        citizenChatOptions.get(key).onClosed();
     }
 }

@@ -30,6 +30,11 @@ public final class WindowConstants
     public static final String BUTTON_ACTIONS = "actions";
 
     /**
+     * Id of the alliance button in the GUI.
+     */
+    public static final String BUTTON_ALLIANCE = "alliances";
+
+    /**
      * Id of the settings button in the GUI.
      */
     public static final String BUTTON_SETTINGS = "settings";
@@ -70,6 +75,11 @@ public final class WindowConstants
     public static final String BUTTON_RENAME = "rename";
 
     /**
+     * Id of the patreon button in the GUI.
+     */
+    public static final String BUTTON_PATREON = "patreon";
+
+    /**
      * Id of the mercenary button in the GUI.
      */
     public static final String BUTTON_MERCENARY = "mercenaries";
@@ -108,6 +118,16 @@ public final class WindowConstants
      * Id of the toggle to switch colony styl.e
      */
     public static final String BUTTON_COLONY_SWITCH_STYLE = "colonyStylePicker";
+
+    /**
+     * Id of the toggle to reset texture.
+     */
+    public static final String BUTTON_RESET_TEXTURE = "resettexture";
+
+    /**
+     * Id of the toggle to select a banner.
+     */
+    public static final String BUTTON_BANNER_PICKER = "bannerPicker";
 
     /**
      * Id of the remove player button in the GUI.
@@ -200,6 +220,11 @@ public final class WindowConstants
     public static final String LIST_CITIZENS = "citizenList";
 
     /**
+     * Id of the happiness list in the GUI.
+     */
+    public static final String LIST_HAPPINESS = "happinessList";
+
+    /**
      * Id of the allies list in the GUI.
      */
     public static final String LIST_ALLIES = "allies";
@@ -225,6 +250,11 @@ public final class WindowConstants
     public static final String NAME_LABEL = "name";
 
     /**
+     * Id of the search input.
+     */
+    public static final String SEARCH_INPUT = "search";
+
+    /**
      * Id of the pos label in the GUI.
      */
     public static final String POS_LABEL = "pos";
@@ -248,6 +278,26 @@ public final class WindowConstants
      * The job of the citizen.
      */
     public static final String JOB_LABEL = "job";
+
+    /**
+     * The health of the citizen.
+     */
+    public static final String HEALTH_SHORT_LABEL = "health";
+
+    /**
+     * The citizen entity.
+     */
+    public static final String ENTITY_ICON = "entity";
+
+    /**
+     * The happiness of the citizen.
+     */
+    public static final String HAPPINESS_SHORT_LABEL = "happinessLevel";
+
+    /**
+     * The saturation of the citizen.
+     */
+    public static final String SATURATION_SHORT_LABEL = "saturation";
 
     /**
      * Id of the distance label in the GUI.
@@ -438,16 +488,6 @@ public final class WindowConstants
     public static final String GUIDE_CONFIRM         = "confirm";
     public static final String GUIDE_CLOSE           = "close";
 
-    public static final String BLOCK1_ADD = "addBlock1";
-    public static final String BLOCK2_ADD = "addBlock2";
-    public static final String BLOCK3_ADD = "addBlock3";
-
-    public static final String BLOCK1 = "block1Icon";
-    public static final String BLOCK2 = "block2Icon";
-    public static final String BLOCK3 = "block3Icon";
-
-    public static final String ADD = "add";
-
     /**
      * BOWindow resource list gui file.
      */
@@ -530,10 +570,10 @@ public final class WindowConstants
     /**
      * Icons used to display the happiness
      */
-    public static final String RED_ICON    = "minecolonies:textures/gui/red_icon.png";
-    public static final String YELLOW_ICON = "minecolonies:textures/gui/yellow_icon.png";
-    public static final String GREEN_ICON  = "minecolonies:textures/gui/green_icon.png";
-    public static final String BLUE_ICON   = "minecolonies:textures/gui/blue_icon.png";
+    public static final String UNHAPPY_ICON     = "minecolonies:textures/gui/unhappy_icon.png";
+    public static final String UNSATISFIED_ICON = "minecolonies:textures/gui/unsatisfied_icon.png";
+    public static final String HAPPY_ICON       = "minecolonies:textures/gui/happy_icon.png";
+    public static final String SATISFIED_ICON = "minecolonies:textures/gui/satisfied_icon.png";
 
     public static final String LABEL_CONSTRUCTION_NAME = "constructionName";
     public static final String LABEL_PROGRESS          = "progress";
@@ -626,12 +666,12 @@ public final class WindowConstants
      * The row where the emtpy Happiness bar starts.
      */
 
-    public static final int HAPPINESS_BAR_EMPTY_ROW = 74;
+    public static final int HAPPINESS_BAR_EMPTY_ROW = 0;
 
     /**
      * The row where the full happiness bar starts.
      */
-    public static final int HAPPINESS_BAR_FULL_ROW = 79;
+    public static final int HAPPINESS_BAR_FULL_ROW = 0;
 
     /**
      * X position of the empty heart icon.
@@ -854,6 +894,11 @@ public final class WindowConstants
      * Source of the female wax location.
      */
     public static final String FEMALE_SOURCE = "minecolonies:textures/gui/citizen/colonist_wax_female_smaller.png";
+
+    /**
+     * Source of the female wax location.
+     */
+    public static final String MALE_SOURCE = "minecolonies:textures/gui/citizen/colonist_wax_male_smaller.png";
 
     /**
      * Id of the detail button
@@ -1118,7 +1163,6 @@ public final class WindowConstants
     public static final String TOWNHALL_PERM_MODE_TOGGLE  = "permissionsModeToggle";
     public static final String TOWNHALL_BUTTON_SUBSCRIBER = "setSubscriber";
     public static final String TOWNHALL_RANK_TYPE_PICKER  = "rankTypePicker";
-    public static final String TOWNHALL_PERMISSION_ERROR  = "permissionError";
 
     /**
      * Input filter id.

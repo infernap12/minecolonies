@@ -5,6 +5,7 @@ import com.minecolonies.api.colony.buildings.ModBuildings;
 import com.minecolonies.api.items.ModItems;
 import com.minecolonies.api.research.AbstractResearchProvider;
 import com.minecolonies.api.research.ResearchBranchType;
+import com.minecolonies.api.util.constant.CitizenConstants;
 import com.minecolonies.api.util.constant.Constants;
 import net.minecraft.data.DataGenerator;
 import net.minecraft.world.item.Items;
@@ -75,12 +76,15 @@ public class DefaultResearchProvider extends AbstractResearchProvider
         effects.add(new ResearchEffect(BLOCK_ATTACKS).setTranslatedName("Knight Shield Blocking Chance +%3$s%%").setLevels(new double[] {0.05, 0.1, 0.25, 0.5}));
         effects.add(new ResearchEffect(BLOCK_BREAK_SPEED).setTranslatedName("Citizen Block Break Speed +%3$s%%").setLevels(new double[] {0.1, 0.25, 0.5, 1, 2}));
         effects.add(new ResearchEffect(BLOCK_PLACE_SPEED).setTranslatedName("Citizen Block Place Speed +%3$s%%").setLevels(new double[] {0.1, 0.25, 0.5, 1, 2}));
-        effects.add(new ResearchEffect(CITIZEN_CAP).setTranslatedName("Increase Max Citizens +%s").setLevels(new double[] {25, 75, 125, 1000}));
+        effects.add(new ResearchEffect(CITIZEN_CAP).setTranslatedName("Max Citizens to %2$s")
+                      .setLevels(new double[] {CitizenConstants.CITIZEN_LIMIT_DEFAULT, CitizenConstants.CITIZEN_LIMIT_OUTPOST, CitizenConstants.CITIZEN_LIMIT_HAMLET,
+                        CitizenConstants.CITIZEN_LIMIT_VILLAGE,
+                        CitizenConstants.CITIZEN_LIMIT_MAX}));
         effects.add(new ResearchEffect(CITIZEN_INV_SLOTS).setTranslatedName("Citizen Inventory +%s Slots").setLevels(new double[] {9, 18, 27}));
         effects.add(new ResearchEffect(DOUBLE_ARROWS).setTranslatedName("Archer Multishot +%3$s%%").setLevels(new double[] {0.05, 0.1, 0.25, 0.5}));
         effects.add(new ResearchEffect(MECHANIC_ENHANCED_GATES).setTranslatedName("Gates Gain +100% Raider Swarm Resistance").setLevels(new double[] {5, 15}));
         effects.add(new ResearchEffect(FARMING).setTranslatedName("Farmers Harvest +%3$s%% Crops").setLevels(new double[] {0.1, 0.25, 0.5, 0.75, 2}));
-        effects.add(new ResearchEffect(FLEEING_DAMAGE).setTranslatedName("Guards Take -%3$s%% Damage When Fleeing").setLevels(new double[] {0.2, 0.3, 0.4, 1}));
+        effects.add(new ResearchEffect(FLEEING_DAMAGE).setTranslatedName("Guards Take -%3$s%% Damage When Fleeing").setLevels(new double[] {0.2, 0.3, 0.4, 0.75}));
         effects.add(new ResearchEffect(FLEEING_SPEED).setTranslatedName("Fleeing Guards Gain Swiftness %2$s").setLevels(new double[] {1, 2, 3, 5}));
         effects.add(new ResearchEffect(GROWTH).setTranslatedName("Child Growth Rate +%3$s%%").setLevels(new double[] {0.05, 0.1, 0.25, 0.5, 1}));
         effects.add(new ResearchEffect(HAPPINESS).setTranslatedName("Citizen Happiness +%3$s%%").setLevels(new double[] {0.05, 0.1, 0.15, 0.2, 0.5}));
@@ -109,7 +113,11 @@ public class DefaultResearchProvider extends AbstractResearchProvider
         effects.add(new ResearchEffect(KNIGHT_TAUNT).setTranslatedName("Knights Force Mobs to Target Them"));
         effects.add(new ResearchEffect(FIRE_RES).setTranslatedName("Miners Have Fire and Lava Immunity"));
         effects.add(new ResearchEffect(ARROW_PIERCE).setTranslatedName("Archers Gain Piercing II"));
-        effects.add(new ResearchEffect(PLANT_2).setTranslatedName("Plantations Grow Two Crops at Once"));
+        effects.add(new ResearchEffect(PLANTATION_LARGE).setTranslatedName("Plantations Unlock 1 Additional Field"));
+        effects.add(new ResearchEffect(PLANTATION_JUNGLE).setTranslatedName("Plantations Unlock Fields For: Bamboo, Cocoa and Vines"));
+        effects.add(new ResearchEffect(PLANTATION_SEA).setTranslatedName("Plantations Unlock Fields For: Kelp, Seagrass and Sea pickles"));
+        effects.add(new ResearchEffect(PLANTATION_EXOTIC).setTranslatedName("Plantations Unlock Fields For: Glowberries"));
+        effects.add(new ResearchEffect(PLANTATION_NETHER).setTranslatedName("Plantations Unlock Fields For: Crimson fungi and Warped fungi"));
         effects.add(new ResearchEffect(BEEKEEP_2).setTranslatedName("Beekeepers Can Harvest Both Honey Bottles and Combs at Once"));
         effects.add(new ResearchEffect(RAILS).setTranslatedName("Citizens use Rails"));
         effects.add(new ResearchEffect(VINES).setTranslatedName("Citizens can climb Vines"));
@@ -160,23 +168,17 @@ public class DefaultResearchProvider extends AbstractResearchProvider
         effects.add(new ResearchEffect(ModBuildings.alchemist.get().getBuildingBlock()).setTranslatedName("Unlocks Alchemist"));
 
 
-        // Crafter-recipe-only unlocks do not require static effect resource locations; the crafter recipe json checks against the research id resource locaiton itself.
-        // Assigning them for now to handle text cleanly, and to allow researches with both recipe and non-recipe effects.
-        effects.add(new ResearchEffect(new ResourceLocation(Constants.MOD_ID, "effects/knowledgeoftheendunlock")).setTranslatedName(
-          "Stonemasons Learn Endstone Recipe and Bakers Learn Chorus Bread Recipe"));
-        effects.add(new ResearchEffect(new ResourceLocation(Constants.MOD_ID, "effects/morescrollsunlock")).setTranslatedName(
-          "Enchanter Learns Scroll Recipes to Locate Workers and Summon Guards"));
-        effects.add(new ResearchEffect(new ResourceLocation(Constants.MOD_ID, "effects/platearmorunlock")).setTranslatedName("Blacksmith Learns Plate Armor Recipes"));
+        // Crafter-recipe-only unlocks
+        effects.add(new ResearchEffect(THE_END).setTranslatedName("Stonemasons Learn Endstone Recipe and Bakers Learn Chorus Bread Recipe"));
+        effects.add(new ResearchEffect(THE_DEPTHS).setTranslatedName("Crusher Learns Deepslate and Tuff Recipes"));
+        effects.add(new ResearchEffect(MORE_SCROLLS).setTranslatedName("Enchanter Learns Scroll Recipes to Locate Workers and Summon Guards"));
+        effects.add(new ResearchEffect(PLATE_ARMOR).setTranslatedName("Blacksmith Learns Plate Armor Recipes"));
 
         //Sifter Mesh triggers
-        effects.add(new ResearchEffect(new ResourceLocation(Constants.MOD_ID, "effects/sifterstringunlock")).setTranslatedName(
-            "Fletcher Learns How to Make String Meshes for the Sifter"));
-        effects.add(new ResearchEffect(new ResourceLocation(Constants.MOD_ID, "effects/sifterflintunlock")).setTranslatedName(
-            "Stonemason Learns How to Make Flint Meshes for the Sifter"));
-        effects.add(new ResearchEffect(new ResourceLocation(Constants.MOD_ID, "effects/sifterironunlock")).setTranslatedName(
-            "Blacksmith Learns How to Make Iron Meshes for the Sifter"));
-        effects.add(new ResearchEffect(new ResourceLocation(Constants.MOD_ID, "effects/sifterdiamondunlock")).setTranslatedName(
-            "Mechanic Learns How to Make Diamond Meshes for the Sifter"));
+        effects.add(new ResearchEffect(SIFTER_STRING).setTranslatedName("Fletcher Learns How to Make String Meshes for the Sifter"));
+        effects.add(new ResearchEffect(SIFTER_FLINT).setTranslatedName("Stonemason Learns How to Make Flint Meshes for the Sifter"));
+        effects.add(new ResearchEffect(SIFTER_IRON).setTranslatedName("Blacksmith Learns How to Make Iron Meshes for the Sifter"));
+        effects.add(new ResearchEffect(SIFTER_DIAMOND).setTranslatedName("Mechanic Learns How to Make Diamond Meshes for the Sifter"));
 
         return effects;
     }
@@ -295,28 +297,28 @@ public class DefaultResearchProvider extends AbstractResearchProvider
                                    .setIcon(ModBlocks.blockHutHome.asItem(), 50)
                                    .addBuildingRequirement(ModBuildings.HOME_ID, 4)
                                    .addItemCost(Items.COOKED_BEEF, 64)
-                                   .addEffect(CITIZEN_CAP, 1)
+                                   .addEffect(CITIZEN_CAP, 2)
                                    .addToList(r);
         final Research hamlet = new Research(new ResourceLocation(Constants.MOD_ID, "civilian/hamlet"), CIVIL).setParentResearch(outpost)
                                   .setTranslatedName("Hamlet")
                                   .setIcon(ModBlocks.blockHutHome.asItem(), 75)
                                   .addBuildingRequirement(ModBuildings.HOME_ID, 5)
                                   .addItemCost(Items.COOKED_BEEF, 128)
-                                  .addEffect(CITIZEN_CAP, 2)
+                                  .addEffect(CITIZEN_CAP, 3)
                                   .addToList(r);
         final Research village = new Research(new ResourceLocation(Constants.MOD_ID, "civilian/village"), CIVIL).setParentResearch(hamlet)
                                    .setTranslatedName("Village")
                                    .setIcon(ModBlocks.blockHutHome.asItem(), 100)
                                    .addBuildingRequirement(ModBuildings.TOWNHALL_ID, 4)
                                    .addItemCost(Items.COOKED_BEEF, 256)
-                                   .addEffect(CITIZEN_CAP, 3)
+                                   .addEffect(CITIZEN_CAP, 4)
                                    .addToList(r);
         new Research(new ResourceLocation(Constants.MOD_ID, "civilian/city"), CIVIL).setParentResearch(village)
           .setTranslatedName("City")
           .setIcon(ModBlocks.blockHutHome.asItem(), 200)
           .addBuildingRequirement(ModBuildings.TOWNHALL_ID, 5)
           .addItemCost(Items.COOKED_BEEF, 512)
-          .addEffect(CITIZEN_CAP, 4)
+          .addEffect(CITIZEN_CAP, 5)
           .addToList(r);
 
         final Research diligent = new Research(new ResourceLocation(Constants.MOD_ID, "civilian/diligent"), CIVIL).setParentResearch(keen)
@@ -469,7 +471,7 @@ public class DefaultResearchProvider extends AbstractResearchProvider
           .setIcon(new ResourceLocation("minecolonies:textures/icons/research/hp4.png"))
           .addBuildingRequirement(ModBuildings.LIBRARY_ID, 3)
           .addItemCost(Items.WHITE_WOOL, 32)
-          .addEffect(MASKS, 3)
+          .addEffect(MASKS, 1)
           .addToList(r);
 
         new Research(new ResourceLocation(Constants.MOD_ID, "civilian/vaccines"), CIVIL).setParentResearch(masks)
@@ -478,7 +480,7 @@ public class DefaultResearchProvider extends AbstractResearchProvider
           .setIcon(new ResourceLocation("minecolonies:textures/icons/research/hp5.png"))
           .addBuildingRequirement(ModBuildings.HOSPITAL_ID, 3)
           .addItemCost(Items.EGG, 64)
-          .addEffect(VACCINES, 3)
+          .addEffect(VACCINES, 1)
           .addToList(r);
 
         final Research circus = new Research(new ResourceLocation(Constants.MOD_ID, "civilian/circus"), CIVIL).setParentResearch(firstAid)
@@ -1073,7 +1075,7 @@ public class DefaultResearchProvider extends AbstractResearchProvider
           .setIcon(ModItems.bannerRallyGuards)
           .addBuildingRequirement(ModBuildings.BARRACKS_ID, 3)
           .addItemCost(Items.EMERALD, 16)
-          .addEffect(TELESCOPE, 3)
+          .addEffect(TELESCOPE, 1)
           .addToList(r);
 
         new Research(new ResourceLocation(Constants.MOD_ID, "combat/standard"), COMBAT).setParentResearch(telescope)
@@ -1081,7 +1083,7 @@ public class DefaultResearchProvider extends AbstractResearchProvider
           .setIcon(ModItems.bannerRallyGuards)
           .addBuildingRequirement(ModBuildings.BARRACKS_ID, 4)
           .addItemCost(Items.EMERALD, 32)
-          .addEffect(STANDARD, 3)
+          .addEffect(STANDARD, 1)
           .addToList(r);
 
         final Research regeneration = new Research(new ResourceLocation(Constants.MOD_ID, "combat/regeneration"), COMBAT).setParentResearch(improvedLeather)
@@ -1262,15 +1264,56 @@ public class DefaultResearchProvider extends AbstractResearchProvider
                                      .addItemCost(ModItems.compost, 16)
                                      .addEffect(ModBuildings.plantation.get().getBuildingBlock(), 1)
                                      .addToList(r);
-        new Research(new ResourceLocation(Constants.MOD_ID, "technology/doubletrouble"), TECH).setParentResearch(letItGrow)
-          .setTranslatedName("Double Trouble")
-          .setTranslatedSubtitle("Double Trouble")
-          .setIcon(Items.GREEN_DYE)
-          .addBuildingRequirement("plantation", 3)
-          .addItemCost(Items.BAMBOO, 64)
-          .addItemCost(Items.SUGAR_CANE, 64)
-          .addItemCost(Items.CACTUS, 64)
-          .addEffect(PLANT_2, 1)
+        final Research cropRotation = new Research(new ResourceLocation(Constants.MOD_ID, "technology/croprotation"), TECH).setParentResearch(letItGrow)
+                                        .setTranslatedName("Crop Rotation")
+                                        .setTranslatedSubtitle("Bigger = better")
+                                        .setIcon(Items.GREEN_DYE)
+                                        .addBuildingRequirement(ModBuildings.PLANTATION_ID, 3)
+                                        .addItemCost(Items.SUGAR_CANE, 32)
+                                        .addItemCost(Items.CACTUS, 32)
+                                        .addEffect(PLANTATION_LARGE, 1)
+                                        .addToList(r);
+
+        new Research(new ResourceLocation(Constants.MOD_ID, "technology/junglemaster"), TECH).setParentResearch(letItGrow)
+          .setTranslatedName("Jungle Master")
+          .setTranslatedSubtitle("Wimoweh Wimoweh Wimoweh")
+          .setIcon(Items.VINE)
+          .addBuildingRequirement(ModBuildings.PLANTATION_ID, 2)
+          .addItemCost(Items.BAMBOO, 16)
+          .addItemCost(Items.COCOA_BEANS, 16)
+          .addItemCost(Items.VINE, 16)
+          .addEffect(PLANTATION_JUNGLE, 1)
+          .addToList(r);
+
+        new Research(new ResourceLocation(Constants.MOD_ID, "technology/takingdivinglessons"), TECH).setParentResearch(letItGrow)
+          .setTranslatedName("Taking Diving Lessons")
+          .setTranslatedSubtitle("*Drowning Noises*")
+          .setIcon(Items.KELP)
+          .addBuildingRequirement(ModBuildings.PLANTATION_ID, 2)
+          .addItemCost(Items.KELP, 16)
+          .addItemCost(Items.SEAGRASS, 16)
+          .addItemCost(Items.SEA_PICKLE, 16)
+          .addEffect(PLANTATION_SEA, 1)
+          .addToList(r);
+
+        new Research(new ResourceLocation(Constants.MOD_ID, "technology/exoticfruits"), TECH).setParentResearch(letItGrow)
+          .setTranslatedName("Exotic Fruits")
+          .setTranslatedSubtitle("Too Dark Here")
+          .setIcon(Items.GLOW_BERRIES)
+          .addBuildingRequirement(ModBuildings.PLANTATION_ID, 3)
+          .addItemCost(Items.GLOW_BERRIES, 32)
+          .addEffect(PLANTATION_EXOTIC, 1)
+          .addToList(r);
+
+        new Research(new ResourceLocation(Constants.MOD_ID, "technology/gargamel"), TECH).setParentResearch(cropRotation)
+          .setTranslatedName("Gargamel")
+          .setTranslatedSubtitle("The Root of all Evil")
+          .setIcon(Items.CRIMSON_FUNGUS)
+          .addBuildingRequirement(ModBuildings.PLANTATION_ID, 3)
+          .addBuildingRequirement(ModBuildings.NETHERWORKER_ID, 3)
+          .addItemCost(Items.CRIMSON_FUNGUS, 16)
+          .addItemCost(Items.WARPED_FUNGUS, 16)
+          .addEffect(PLANTATION_NETHER, 1)
           .addToList(r);
 
         final Research bonemeal = new Research(new ResourceLocation(Constants.MOD_ID, "technology/bonemeal"), TECH).setParentResearch(biodegradable)
@@ -1405,6 +1448,7 @@ public class DefaultResearchProvider extends AbstractResearchProvider
           .setIcon(Items.COBBLED_DEEPSLATE)
           .addBuildingRequirement("crusher", 3)
           .addItemCost(Items.DEEPSLATE, 64)
+          .addEffect(THE_DEPTHS, 1)
           .addToList(r);
 
         new Research(new ResourceLocation(Constants.MOD_ID, "technology/pavetheroad"), TECH).setParentResearch(rockingRoll)

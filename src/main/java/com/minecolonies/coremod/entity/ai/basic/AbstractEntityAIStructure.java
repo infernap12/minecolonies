@@ -8,7 +8,6 @@ import com.ldtteam.structurize.placement.StructurePhasePlacementResult;
 import com.ldtteam.structurize.placement.StructurePlacer;
 import com.ldtteam.structurize.placement.structure.IStructureHandler;
 import com.ldtteam.structurize.storage.ServerFutureProcessor;
-import com.ldtteam.structurize.storage.StructurePacks;
 import com.ldtteam.structurize.util.BlockUtils;
 import com.ldtteam.structurize.util.BlueprintPositionInfo;
 import com.ldtteam.structurize.util.PlacementSettings;
@@ -18,6 +17,7 @@ import com.minecolonies.api.colony.buildings.IBuilding;
 import com.minecolonies.api.colony.requestsystem.request.IRequest;
 import com.minecolonies.api.colony.requestsystem.requestable.IDeliverable;
 import com.minecolonies.api.colony.requestsystem.requestable.Stack;
+import com.minecolonies.api.colony.workorders.IWorkOrder;
 import com.minecolonies.api.crafting.ItemStorage;
 import com.minecolonies.api.entity.ai.citizen.builder.IBuilderUndestroyable;
 import com.minecolonies.api.entity.ai.statemachine.AIEventTarget;
@@ -37,8 +37,6 @@ import com.minecolonies.coremod.colony.jobs.AbstractJobStructure;
 import com.minecolonies.coremod.entity.ai.util.BuildingStructureHandler;
 import com.minecolonies.coremod.tileentities.TileEntityDecorationController;
 import net.minecraft.core.BlockPos;
-import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.tags.BlockTags;
 import net.minecraft.world.InteractionHand;
@@ -55,7 +53,10 @@ import net.minecraftforge.common.util.TriPredicate;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.*;
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.Future;
 import java.util.function.Predicate;
 
@@ -349,8 +350,6 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
             return INVENTORY_FULL;
         }
 
-        worker.getCitizenStatusHandler().setLatestStatus(Component.translatable("com.minecolonies.coremod.status.building"));
-
         checkForExtraBuildingActions();
 
         // some things to do first! then we go to the actual phase!
@@ -471,6 +470,7 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
             if (!structurePlacer.getB().nextStage())
             {
                 building.setProgressPos(null, null);
+                worker.getCitizenData().setStatusPosition(null);
                 return COMPLETE_BUILD;
             }
         }
@@ -496,6 +496,7 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
         if (result.getBlockResult().getResult() == BlockPlacementResult.Result.BREAK_BLOCK)
         {
             blockToMine = result.getBlockResult().getWorldPos();
+            worker.getCitizenData().setStatusPosition(blockToMine);
             return MINE_BLOCK;
         }
         else
@@ -561,23 +562,22 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
     /**
      * Loads the structure given the name, rotation and position.
      *
-     * @param packName the pack name.
-     * @param blueprintPath the path of the blueprint.
+     * @param workOrder   the work order.
      * @param rotateTimes number of times to rotateWithMirror it.
      * @param position    the position to set it.
      * @param isMirrored  is the structure mirroed?
      * @param removal     if removal step.
      */
-    public void loadStructure(@NotNull final String packName, final String blueprintPath, final int rotateTimes, final BlockPos position, final boolean isMirrored, final boolean removal)
+    public void loadStructure(@NotNull final IWorkOrder workOrder, final int rotateTimes, final BlockPos position, final boolean isMirrored, final boolean removal)
     {
-        final Future<Blueprint> blueprintFuture = StructurePacks.getBlueprintFuture(packName, blueprintPath);
+        final Future<Blueprint> blueprintFuture = workOrder.getBlueprintFuture();
         this.loadingBlueprint = true;
 
         ServerFutureProcessor.queueBlueprint(new ServerFutureProcessor.BlueprintProcessingData(blueprintFuture, world, (blueprint -> {
             if (blueprint == null)
             {
                 handleSpecificCancelActions();
-                Log.getLogger().warn("Couldn't find structure with name: " + blueprintPath + " in: " + packName + ". Aborting loading procedure");
+                Log.getLogger().warn("Couldn't find structure with name: " + workOrder.getStructurePath() + " in: " + workOrder.getStructurePack() + ". Aborting loading procedure");
                 this.loadingBlueprint = false;
                 return;
             }
@@ -596,7 +596,7 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
                 building.setTotalStages(2);
             }
             else if ((colonyBuilding != null && (colonyBuilding.getBuildingLevel() > 0 || colonyBuilding.hasParent())) ||
-                       (entity instanceof TileEntityDecorationController && Utils.getBlueprintLevel(((TileEntityDecorationController) entity).getSchematicPath()) != -1))
+                       (entity instanceof TileEntityDecorationController && Utils.getBlueprintLevel(((TileEntityDecorationController) entity).getBlueprintPath()) != -1))
             {
                 structure = new BuildingStructureHandler<>(world,
                   position,
@@ -815,8 +815,6 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
     @Override
     public void fillItemsList()
     {
-        worker.getCitizenStatusHandler().setLatestStatus(Component.translatable("com.minecolonies.coremod.status.gathering"));
-
         if (!structurePlacer.getB().hasBluePrint())
         {
             return;
@@ -873,13 +871,35 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
     }
 
     /**
+     * Get the current block being placed/removed. May be null if nothing is loaded yet.
+     *
+     * @return the current building position, or null.
+     */
+    @Nullable
+    public BlockPos getCurrentBuildingPosition()
+    {
+        if (structurePlacer == null || structurePlacer.getA() == null || structurePlacer.getB() == null)
+        {
+            return null;
+        }
+
+        final BlockPos progressPos = structurePlacer.getA().getIterator().getProgressPos();
+        if (progressPos == null || progressPos.equals(NULL_POS))
+        {
+            return null;
+        }
+
+        return structurePlacer.getB().getProgressPosInWorld(progressPos);
+    }
+
+    /**
      * Get the current working position for the worker. If workFrom is null calculate a new one.
      *
      * @return the current working position.
      */
     protected BlockPos getCurrentWorkingPosition()
     {
-        return workFrom == null ? getWorkingPosition(structurePlacer.getB().getProgressPosInWorld(structurePlacer.getA().getIterator().getProgressPos())) : workFrom;
+        return workFrom == null ? getWorkingPosition(getCurrentBuildingPosition()) : workFrom;
     }
 
     /**
@@ -891,7 +911,6 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
     {
         if (structurePlacer == null || !structurePlacer.getB().hasBluePrint())
         {
-            worker.getCitizenStatusHandler().setLatestStatus(Component.translatable("com.minecolonies.coremod.status.waitingForBuild"));
             return false;
         }
         return true;
@@ -949,6 +968,7 @@ public abstract class AbstractEntityAIStructure<J extends AbstractJobStructure<?
         workFrom = null;
         structurePlacer = null;
         building.setProgressPos(null, null);
+        worker.getCitizenData().setStatusPosition(null);
     }
 
     /**

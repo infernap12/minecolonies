@@ -97,7 +97,13 @@ public class BuildingDyer extends AbstractBuilding
             if (!super.isRecipeCompatible(recipe)) return false;
             return CraftingUtils.isRecipeCompatibleBasedOnTags(recipe, CRAFTING_DYER).orElse(false);
         }
-        
+
+        @Override
+        public void improveRecipe(final IRecipeStorage recipe, final int count, final ICitizenData citizen)
+        {
+            // don't improve any dyeing recipes
+        }
+
         @Override
         public IRecipeStorage getFirstRecipe(Predicate<ItemStack> stackPredicate)
         {
@@ -137,7 +143,13 @@ public class BuildingDyer extends AbstractBuilding
                 return true;
             }
 
-            return IColonyManager.getInstance().getRecipeManager().getRecipe(token).getPrimaryOutput().getItem() == Items.WHITE_WOOL;
+            final IRecipeStorage recipe = IColonyManager.getInstance().getRecipeManager().getRecipe(token);
+            if (recipe == null)
+            {
+                return false;
+            }
+
+            return recipe.getPrimaryOutput().getItem() == Items.WHITE_WOOL;
         }
 
         @Override
@@ -230,6 +242,12 @@ public class BuildingDyer extends AbstractBuilding
                 return false;
             }
             return CraftingUtils.isRecipeCompatibleBasedOnTags(recipe, CRAFTING_DYER_SMELTING).orElse(false);
+        }
+
+        @Override
+        public void improveRecipe(final IRecipeStorage recipe, final int count, final ICitizenData citizen)
+        {
+            // don't improve any dyeing recipes
         }
     }
 }

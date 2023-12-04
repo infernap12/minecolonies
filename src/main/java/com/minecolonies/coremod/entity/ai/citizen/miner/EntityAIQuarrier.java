@@ -5,16 +5,17 @@ import com.ldtteam.structurize.placement.BlockPlacementResult;
 import com.ldtteam.structurize.placement.StructurePhasePlacementResult;
 import com.ldtteam.structurize.placement.StructurePlacer;
 import com.ldtteam.structurize.storage.ServerFutureProcessor;
-import com.ldtteam.structurize.storage.StructurePacks;
 import com.ldtteam.structurize.util.PlacementSettings;
 import com.minecolonies.api.colony.IColonyManager;
 import com.minecolonies.api.colony.buildings.IBuilding;
 import com.minecolonies.api.colony.interactionhandling.ChatPriority;
+import com.minecolonies.api.colony.workorders.IWorkOrder;
 import com.minecolonies.api.entity.ai.citizen.builder.IBuilderUndestroyable;
 import com.minecolonies.api.entity.ai.statemachine.AITarget;
 import com.minecolonies.api.entity.ai.statemachine.states.IAIState;
 import com.minecolonies.api.entity.citizen.VisibleCitizenStatus;
 import com.minecolonies.api.entity.pathfinding.SurfaceType;
+import com.minecolonies.api.tileentities.AbstractTileEntityColonyBuilding;
 import com.minecolonies.api.util.*;
 import com.minecolonies.coremod.MineColonies;
 import com.minecolonies.coremod.colony.buildings.AbstractBuildingStructureBuilder;
@@ -42,6 +43,7 @@ import net.minecraft.world.level.material.Fluids;
 import net.minecraftforge.common.ToolActions;
 import org.jetbrains.annotations.NotNull;
 
+import java.util.Collections;
 import java.util.concurrent.Future;
 
 import static com.ldtteam.structurize.placement.AbstractBlueprintIterator.NULL_POS;
@@ -51,7 +53,8 @@ import static com.minecolonies.api.util.constant.CitizenConstants.PROGRESS_MULTI
 import static com.minecolonies.api.util.constant.Constants.TICKS_SECOND;
 import static com.minecolonies.api.util.constant.StatisticsConstants.BLOCKS_MINED;
 import static com.minecolonies.api.util.constant.StatisticsConstants.ORES_MINED;
-import static com.minecolonies.api.util.constant.TranslationConstants.*;
+import static com.minecolonies.api.util.constant.TranslationConstants.QUARRY_MINER_FINISHED_QUARRY;
+import static com.minecolonies.api.util.constant.TranslationConstants.QUARRY_MINER_NO_QUARRY;
 import static com.minecolonies.coremod.colony.buildings.workerbuildings.BuildingMiner.FILL_BLOCK;
 import static com.minecolonies.coremod.entity.ai.basic.AbstractEntityAIStructure.ItemCheckResult.RECALC;
 import static com.minecolonies.coremod.entity.ai.citizen.miner.EntityAIStructureMiner.RENDER_META_PICKAXE;
@@ -138,7 +141,9 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
                 return IDLE;
             }
 
-            final WorkOrderMiner wo = new WorkOrderMiner(quarry.getStructurePack(), "infrastructure/mineshafts/" + quarry.getSchematicName() + "shaft1.blueprint", quarry.getSchematicName() + "shaft1", quarry.getRotation(), quarry.getPosition().below(2), false, building.getPosition());
+            final Tuple<String, String> shaft = getShaftPath(quarry);
+            final WorkOrderMiner wo = new WorkOrderMiner(quarry.getStructurePack(), shaft.getA(), shaft.getB(), quarry.getRotation(), quarry.getPosition().below(2), false, building.getPosition());
+            wo.setClaimedBy(building.getPosition());
             building.getColony().getWorkManager().addWorkOrder(wo, false);
             job.setWorkOrder(wo);
         }
@@ -146,23 +151,71 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
         return super.loadRequirements();
     }
 
+    /**
+     * Get the path of the quarry shaft blueprint.
+     *
+     * The shaft path is either based on an explicit shaft= tag on the building, or based on the actual schematic used.
+     * The directory can be explicitly specified, or it will default to the same as the building.
+     *
+     * @param quarry the quarry building.
+     * @return tuple of (structureName, workOrderName) for work order, aka (path, desc).
+     */
+    private Tuple<String, String> getShaftPath(@NotNull final IBuilding quarry)
+    {
+        String path = "infrastructure/mineshafts/" + quarry.getSchematicName() + "shaft1.blueprint";
+
+        final AbstractTileEntityColonyBuilding tileEntity = quarry.getTileEntity();
+        if (tileEntity != null)
+        {
+            path = quarry.getBlueprintPath().replace('\\', '/')
+                    .replace("1.blueprint", "shaft1.blueprint");
+            if (!path.endsWith("shaft1.blueprint"))
+            {
+                path = path.replace(".blueprint", "shaft.blueprint");
+            }
+
+            for (final String tag : tileEntity.getPositionedTags().getOrDefault(BlockPos.ZERO, Collections.emptyList()))
+            {
+                if (tag.startsWith("shaft="))
+                {
+                    if (tag.contains("/"))
+                    {
+                        path = tag.substring(6);
+                    }
+                    else
+                    {
+                        path = path.substring(0, path.lastIndexOf('/') + 1) + tag.substring(6);
+                    }
+                }
+                break;
+            }
+
+            if (!path.endsWith(".blueprint"))
+            {
+                path += ".blueprint";
+            }
+        }
+
+        final String name = path.substring(path.lastIndexOf('/') + 1).replace(".blueprint", "");
+        return new Tuple<>(path, name);
+    }
+
     @Override
     public void loadStructure(
-      @NotNull final String packName,
-      final String blueprintPath,
-      final int rotateTimes,
-      final BlockPos position,
-      final boolean isMirrored,
-      final boolean removal)
+            @NotNull final IWorkOrder workOrder,
+            final int rotateTimes,
+            final BlockPos position,
+            final boolean isMirrored,
+            final boolean removal)
     {
-        final Future<Blueprint> blueprintFuture = StructurePacks.getBlueprintFuture(packName, blueprintPath);
+        final Future<Blueprint> blueprintFuture = workOrder.getBlueprintFuture();
         this.loadingBlueprint = true;
 
         ServerFutureProcessor.queueBlueprint(new ServerFutureProcessor.BlueprintProcessingData(blueprintFuture, world, (blueprint -> {
             if (blueprint == null)
             {
                 handleSpecificCancelActions();
-                Log.getLogger().warn("Couldn't find structure with name: " + blueprintPath + " in: " + packName + ". Aborting loading procedure");
+                Log.getLogger().warn("Couldn't find structure with name: " + workOrder.getStructurePath() + " in: " + workOrder.getStructurePack() + ". Aborting loading procedure");
                 this.loadingBlueprint = false;
                 return;
             }
@@ -178,7 +231,7 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
             if (!structure.hasBluePrint())
             {
                 handleSpecificCancelActions();
-                Log.getLogger().warn("Couldn't find structure with name: " + blueprintPath + " aborting loading procedure");
+                Log.getLogger().warn("Couldn't find structure with name: " + workOrder.getStructurePath() + " aborting loading procedure");
                 this.loadingBlueprint = false;
                 return;
             }
@@ -214,8 +267,6 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
         {
             return INVENTORY_FULL;
         }
-
-        worker.getCitizenStatusHandler().setLatestStatus(Component.translatable("com.minecolonies.coremod.status.building"));
 
         checkForExtraBuildingActions();
 
@@ -311,6 +362,7 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
                 {
                     building.nextStage();
                     building.setProgressPos(null, null);
+                    worker.getCitizenData().setStatusPosition(null);
                     return COMPLETE_BUILD;
                 }
                 else if (progress.getY() != -1 && (result.getIteratorPos().getY() < progress.getY() || result.getBlockResult().getWorldPos().getY() < worldPos.getY()))
@@ -346,10 +398,12 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
             if (currentWorldPos.getY() < worker.getLevel().getMinBuildHeight() + 5)
             {
                 building.setProgressPos(null, null);
+                worker.getCitizenData().setStatusPosition(null);
                 return COMPLETE_BUILD;
             }
 
             blockToMine = currentWorldPos;
+            worker.getCitizenData().setStatusPosition(blockToMine);
             return MINE_BLOCK;
         }
 
@@ -492,21 +546,32 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
     @Override
     protected boolean checkIfCanceled()
     {
+        boolean isCanceled = false;
         if (job.findQuarry() == null)
         {
             worker.getCitizenData().triggerInteraction(new StandardInteraction(Component.translatable(QUARRY_MINER_NO_QUARRY), ChatPriority.BLOCKING));
-            return true;
+            isCanceled = true;
         }
         else if (job.findQuarry().getFirstModuleOccurance(QuarryModule.class).isFinished())
         {
             worker.getCitizenData().triggerInteraction(new StandardInteraction(Component.translatable(QUARRY_MINER_FINISHED_QUARRY), ChatPriority.BLOCKING));
-            return true;
+            isCanceled = true;
         }
         else if(job.getWorkOrder() != null && !job.getWorkOrder().getLocation().equals(job.findQuarry().getPosition().below(2)))
         {
+            isCanceled = true;
+        }
+
+        if (isCanceled)
+        {
+            if (job.hasWorkOrder())
+            {
+                job.getColony().getWorkManager().removeWorkOrder(job.getWorkOrderId());
+                job.setWorkOrder(null);
+            }
             blockToMine = null;
-            job.complete();
             building.setProgressPos(null, null);
+            worker.getCitizenData().setStatusPosition(null);
             return true;
         }
         return super.checkIfCanceled();
@@ -678,6 +743,11 @@ public class EntityAIQuarrier extends AbstractEntityAIStructureWithWorkOrder<Job
                 workFrom = worker.blockPosition();
             }
             return false;
+        }
+
+        if (BlockPosUtil.getDistance(worker.blockPosition(), currentBlock) <= 5 + 5 * pathBackupFactor)
+        {
+            return true;
         }
 
         if (walkToBlock(workFrom))

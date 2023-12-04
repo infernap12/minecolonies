@@ -54,6 +54,9 @@ public class EntryPoint
           .addNode(new CommandLoadBackup().build())
           .addNode(new CommandLoadAllBackups().build())
           .addNode(new CommandColonyInfo().build())
+          .addNode(new CommandColonyPrintStats().build())
+          .addNode(new CommandColonyRaidsInfo().build())
+          .addNode(new CommandColonyChunks().build())
           .addNode(new CommandRSReset().build())
           .addNode(new CommandRSResetAll().build())
           .addNode(new CommandSetAbandoned().build())
@@ -88,6 +91,7 @@ public class EntryPoint
           .addNode(new CommandBackup().build())
           .addNode(new CommandResetPlayerSupplies().build())
           .addNode(new CommandHelp().build())
+          .addNode(new ScanCommand().build())
           .addNode(new CommandPruneWorld().build());
 
         /*

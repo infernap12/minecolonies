@@ -36,14 +36,7 @@ public interface ICivilianData extends ICitizen, INBTSerializable<CompoundTag>
     /**
      * Marks the instance dirty.
      */
-    void markDirty();
-
-    /**
-     * Returns the colony of the citizen.
-     *
-     * @return colony of the citizen.
-     */
-    IColony getColony();
+    void markDirty(final int time);
 
     /**
      * Initializes a new citizen, when not read from nbt
@@ -157,15 +150,15 @@ public interface ICivilianData extends ICitizen, INBTSerializable<CompoundTag>
      * Trigger the response on the server side.
      *
      * @param key      the key of the component.
-     * @param response the triggered response.
+     * @param responseId the triggered response.
      * @param player   the world it was triggered in.
      */
-    void onResponseTriggered(@NotNull Component key, @NotNull Component response, Player player);
+    void onResponseTriggered(@NotNull Component key, @NotNull int responseId, Player player);
 
     /**
      * Tick the data to update values.
      */
-    void tick();
+    void update();
 
     /**
      * Trigger a possible interaction.
@@ -194,4 +187,10 @@ public interface ICivilianData extends ICitizen, INBTSerializable<CompoundTag>
      * @return
      */
     Optional<? extends AbstractCivilianEntity> getEntity();
+
+    /**
+     * Get the sound profile of the citizen.
+     * @return the profile id.
+     */
+    int getSoundProfile();
 }

@@ -48,10 +48,10 @@ public class RequestHandler implements IRequestHandler
         final IToken<?> token = manager.getTokenHandler().generateNewToken();
 
         final IRequest<Request> constructedRequest = manager.getFactoryController()
-                                                       .getNewInstance(TypeToken.of((Class<? extends IRequest<Request>>) RequestMappingHandler.getRequestableMappings()
-                                                                                                                           .get(request.getClass())), request, token, requester);
+          .getNewInstance(TypeToken.of((Class<? extends IRequest<Request>>) RequestMappingHandler.getRequestableMappings()
+            .get(request.getClass())), request, token, requester);
 
-        manager.getLogger().debug("Creating request for: " + request + ", token: " + token + " and output: " + constructedRequest);
+        manager.log("Creating request for: " + request + ", token: " + token + " and output: " + constructedRequest);
 
         registerRequest(constructedRequest);
 
@@ -67,7 +67,7 @@ public class RequestHandler implements IRequestHandler
             throw new IllegalArgumentException("The given request is already known to this manager");
         }
 
-        manager.getLogger().debug("Registering request: " + request);
+        manager.log("Registering request: " + request);
 
         manager.getRequestIdentitiesDataStore().getIdentities().put(request.getId(), request);
     }
@@ -125,7 +125,7 @@ public class RequestHandler implements IRequestHandler
         //Check if the request is registered
         getRequest(request.getId());
 
-        manager.getLogger().debug("Starting resolver assignment search for request: " + request);
+        manager.log("Starting resolver assignment search for request: " + request);
 
         request.setState(new WrappedStaticStateRequestManager(manager), RequestState.ASSIGNING);
 
@@ -133,17 +133,32 @@ public class RequestHandler implements IRequestHandler
 
         final List<TypeToken<?>> typeIndexList = new LinkedList<>(requestTypes);
 
-        final Set<IRequestResolver<?>> resolvers = requestTypes.stream()
-                                                     .filter(typeToken -> manager.getRequestableTypeRequestResolverAssignmentDataStore().getAssignments().containsKey(typeToken))
-                                                     .flatMap(type -> manager.getRequestableTypeRequestResolverAssignmentDataStore()
-                                                                        .getAssignments()
-                                                                        .get(type)
-                                                                        .stream()
-                                                                        .map(iToken -> manager.getResolverHandler().getResolver(iToken)))
-                                                     .filter(iRequestResolver -> typeIndexList.contains(iRequestResolver.getRequestType()))
-                                                     .sorted(Comparator.comparingInt((IRequestResolver<?> r) -> -1 * r.getPriority())
-                                                               .thenComparingInt((IRequestResolver<?> r) -> typeIndexList.indexOf(r.getRequestType())))
-                                                     .collect(Collectors.toCollection(LinkedHashSet::new));
+        List<IRequestResolver<? extends IRequestable>> resolverList = new ArrayList<>();
+        for (final TypeToken<?> requestTypeToken : requestTypes)
+        {
+            final Collection<IToken<?>> resolverTokens = manager.getRequestableTypeRequestResolverAssignmentDataStore()
+              .getAssignments()
+              .get(requestTypeToken);
+
+            if (resolverTokens == null)
+            {
+                continue;
+            }
+
+            for (IToken<?> iToken : resolverTokens)
+            {
+                final IRequestResolver<? extends IRequestable> iRequestResolver = manager.getResolverHandler().getResolver(iToken);
+                if (requestTypes.contains(iRequestResolver.getRequestType()))
+                {
+                    resolverList.add(iRequestResolver);
+                }
+            }
+        }
+
+        resolverList.sort(Comparator.comparingInt((IRequestResolver<?> r) -> -1 * r.getPriority())
+          .thenComparingInt((IRequestResolver<?> r) -> typeIndexList.indexOf(r.getRequestType())));
+
+        final Set<IRequestResolver<?>> resolvers = new LinkedHashSet<>(resolverList);
 
         IRequestResolver previousResolver = null;
         int previousMetric = Integer.MAX_VALUE;
@@ -154,6 +169,11 @@ public class RequestHandler implements IRequestHandler
             if (resolverTokenBlackList.contains(resolver.getId()) || manager.getResolverHandler().isBeingRemoved(resolver.getId()))
             {
                 continue;
+            }
+
+            if (previousResolver != null && !previousResolver.getClass().equals(resolver.getClass()))
+            {
+                break;
             }
 
             //Skip if preliminary check fails
@@ -171,15 +191,14 @@ public class RequestHandler implements IRequestHandler
                     previousResolver = resolver;
                     previousMetric = resolver.getSuitabilityMetric(request);
                 }
-                continue;
             }
-
-            if (previousResolver.getClass().equals(resolver.getClass()))
+            else
             {
                 final int currentResolverMetric = resolver.getSuitabilityMetric(request);
                 if (currentResolverMetric < previousMetric)
                 {
-                    @Nullable List<IToken<?>> tempAttemptResolveRequest = resolver.attemptResolveRequest(new WrappedBlacklistAssignmentRequestManager(manager, resolverTokenBlackList), request);
+                    @Nullable List<IToken<?>> tempAttemptResolveRequest =
+                      resolver.attemptResolveRequest(new WrappedBlacklistAssignmentRequestManager(manager, resolverTokenBlackList), request);
                     if (tempAttemptResolveRequest != null)
                     {
                         previousResolver = resolver;
@@ -187,10 +206,6 @@ public class RequestHandler implements IRequestHandler
                         attemptResult = tempAttemptResolveRequest;
                     }
                 }
-            }
-            else
-            {
-                break;
             }
         }
 
@@ -204,15 +219,20 @@ public class RequestHandler implements IRequestHandler
 
     /**
      * Attempt to resolve a given request with a set resolver.
-     * @param request the request to fulfill.
-     * @param resolver the resolver to use.
+     *
+     * @param request                the request to fulfill.
+     * @param resolver               the resolver to use.
      * @param resolverTokenBlackList the black list.
      * @return the resolver token.
      */
-    private IToken<?> resolve(final IRequest<?> request, final IRequestResolver resolver, final Collection<IToken<?>> resolverTokenBlackList, @Nullable final List<IToken<?>> attemptResult)
+    private IToken<?> resolve(
+      final IRequest<?> request,
+      final IRequestResolver resolver,
+      final Collection<IToken<?>> resolverTokenBlackList,
+      @Nullable final List<IToken<?>> attemptResult)
     {
         //Successfully found a resolver. Registering
-        manager.getLogger().debug("Finished resolver assignment search for request: " + request + " successfully");
+        manager.log("Finished resolver assignment search for request: " + request + " successfully");
 
         manager.getResolverHandler().addRequestToResolver(resolver, request);
         //TODO: Change this false to simulation.
@@ -485,7 +505,7 @@ public class RequestHandler implements IRequestHandler
             }
         }
 
-                if (request.hasParent())
+        if (request.hasParent())
         {
             getRequest(request.getParent()).removeChild(request.getId());
         }
@@ -540,7 +560,7 @@ public class RequestHandler implements IRequestHandler
     @Override
     public void cleanRequestData(final IToken<?> token)
     {
-        manager.getLogger().debug("Removing " + token + " from the Manager as it has been completed and its package has been received by the requester.");
+        manager.log("Removing " + token + " from the Manager as it has been completed and its package has been received by the requester.");
         getRequest(token);
 
         if (isAssigned(token))
@@ -594,7 +614,7 @@ public class RequestHandler implements IRequestHandler
     @Override
     public IRequest<?> getRequestOrNull(final IToken<?> token)
     {
-        manager.getLogger().debug("Retrieving the request for: " + token);
+        manager.log("Retrieving the request for: " + token);
 
         return manager.getRequestIdentitiesDataStore().getIdentities().get(token);
     }
@@ -609,10 +629,10 @@ public class RequestHandler implements IRequestHandler
     public Collection<IRequest<?>> getRequestsMadeByRequester(final IRequester requester)
     {
         return manager.getRequestIdentitiesDataStore()
-                 .getIdentities()
-                 .values()
-                 .stream()
-                 .filter(iRequest -> iRequest.getRequester().getId().equals(requester.getId()))
-                 .collect(Collectors.toList());
+          .getIdentities()
+          .values()
+          .stream()
+          .filter(iRequest -> iRequest.getRequester().getId().equals(requester.getId()))
+          .collect(Collectors.toList());
     }
 }

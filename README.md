@@ -2,7 +2,7 @@
 [![Build Status](https://buildsystem.ldtteam.com/app/rest/builds/buildType:LetSDevTogether_Minecolonies_Alpha_Release/statusIcon)](http://buildsystem.ldtteam.com/)
 [![Crowdin](https://badges.crowdin.net/minecolonies/localized.svg)](https://crowdin.com/project/minecolonies)
 
-![mcol logo](minecolonies.png)
+![mcol logo](minecolonies_logo.png)
 
 
 # MineColonies
@@ -40,6 +40,24 @@ MineColonies crashes every time? Have a suggestion? Found a bug? Create an issue
 5. Click `Submit New Issue` and wait for a response!
 
 ## For Developers
+
+### Adding MineColonies as a dependency
+
+In Forge, add the following to your `build.gradle`:
+
+```gradle
+repositories {
+    maven { url 'https://ldtteam.jfrog.io/ldtteam/modding' }
+}
+
+dependencies {
+    implementation fg.deobf("com.ldtteam:minecolonies:${minecolonies_version}")
+    implementation fg.deobf("com.ldtteam:structurize:${structurize_version}")
+    implementation fg.deobf("com.ldtteam:multi-piston:${multipiston_version}")
+    implementation fg.deobf("com.ldtteam:domum_ornamentum:${domumornamentum_version}:universal")
+    implementation fg.deobf("com.ldtteam:blockui:${blockui_version}")
+}
+```
 
 ### Compiling MineColonies
 

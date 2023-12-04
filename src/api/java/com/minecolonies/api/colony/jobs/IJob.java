@@ -2,15 +2,17 @@ package com.minecolonies.api.colony.jobs;
 
 import com.minecolonies.api.colony.ICitizenData;
 import com.minecolonies.api.colony.IColony;
+import com.minecolonies.api.colony.buildings.IBuilding;
+import com.minecolonies.api.colony.buildings.modules.IAssignsJob;
 import com.minecolonies.api.colony.jobs.registry.JobEntry;
 import com.minecolonies.api.colony.requestsystem.token.IToken;
+import com.minecolonies.api.entity.ai.ITickingStateAI;
 import com.minecolonies.api.entity.citizen.AbstractEntityCitizen;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.damagesource.DamageSource;
-import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.entity.ai.goal.GoalSelector;
 import net.minecraft.world.item.ItemStack;
 import net.minecraftforge.common.util.INBTSerializable;
 import org.jetbrains.annotations.NotNull;
@@ -20,7 +22,7 @@ import java.util.Set;
 import static com.minecolonies.api.util.constant.HappinessConstants.IDLE_AT_JOB_COMPLAINS_DAYS;
 import static com.minecolonies.api.util.constant.HappinessConstants.IDLE_AT_JOB_DEMANDS_DAYS;
 
-public interface IJob<AI extends Goal> extends INBTSerializable<CompoundTag>
+public interface IJob<AI extends ITickingStateAI> extends INBTSerializable<CompoundTag>
 {
     /**
      * The {@link JobEntry} for this job.
@@ -51,11 +53,9 @@ public interface IJob<AI extends Goal> extends INBTSerializable<CompoundTag>
     Set<IToken<?>> getAsyncRequests();
 
     /**
-     * Override to add Job-specific AI tasks to the given EntityAITask list.
-     *
-     * @param tasks EntityAITasks list to add tasks to.
+     * Creates the work AI
      */
-    void addWorkerAIToTaskList(@NotNull GoalSelector tasks);
+    void createAI();
 
     /**
      * Generate your AI class to register.
@@ -122,7 +122,9 @@ public interface IJob<AI extends Goal> extends INBTSerializable<CompoundTag>
      * @param citizen
      */
     default void initEntityValues(AbstractEntityCitizen citizen)
-    {}
+    {
+        citizen.getCitizenData().setIdleAtJob(false);
+    }
 
     /**
      * Get the CitizenData that this Job belongs to.
@@ -288,4 +290,28 @@ public interface IJob<AI extends Goal> extends INBTSerializable<CompoundTag>
     {
         return false;
     }
+
+    /**
+     * Gets the position of the building the job is assigned to
+     * @return
+     */
+    public BlockPos getBuildingPos();
+
+    /**
+     * Gets the work building
+     * @return
+     */
+    public IBuilding getWorkBuilding();
+
+    /**
+     * Gets the module this job is assigned to
+     */
+    IAssignsJob getWorkModule();
+
+    /**
+     * Assigns the job to its specific work module
+     * @param module
+     * @return
+     */
+    boolean assignTo(IAssignsJob module);
 }

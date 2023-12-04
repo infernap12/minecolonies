@@ -50,7 +50,9 @@ public class DefaultBlockLootTableProvider extends SimpleLootTableProvider
         saveBlock(ModBlocks.blockWayPoint, registrar);
         saveBlock(ModBlocks.blockBarrel, registrar);
         saveBlock(ModBlocks.blockScarecrow, registrar);
+        saveBlock(ModBlocks.blockPlantationField, registrar);
         saveBlock(ModBlocks.blockColonyBanner, registrar);
+        saveBlock(ModBlocks.blockColonyWallBanner, registrar);
         saveBlock(ModBlocks.blockIronGate, registrar);
         saveBlock(ModBlocks.blockWoodenGate, registrar);
 

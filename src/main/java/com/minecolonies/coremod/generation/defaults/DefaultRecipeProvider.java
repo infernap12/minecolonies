@@ -118,6 +118,7 @@ public class DefaultRecipeProvider extends RecipeProvider
         registerHutRecipe1(consumer, ModBlocks.blockHutTavern, Items.BARREL);
         registerHutRecipe1(consumer, ModBlocks.blockHutTownHall, buildTool.get());
         registerHutRecipe1(consumer, ModBlocks.blockHutWareHouse, Tags.Items.CHESTS);
+        registerHutRecipe1(consumer, ModBlocks.blockHutNetherWorker, Items.OBSIDIAN);
         registerHutRecipe1(consumer, ModBlocks.blockHutAlchemist, Items.BREWING_STAND);
 
         ShapedRecipeBuilder.shaped(ModBlocks.blockHutCrusher)
@@ -182,6 +183,17 @@ public class DefaultRecipeProvider extends RecipeProvider
                 .unlockedBy("has_items", hasAllOf(buildTool.get(), ModBlocks.blockHutFarmer))
                 .save(consumer);
 
+        ShapedRecipeBuilder.shaped(ModBlocks.blockPlantationField)
+          .pattern(" T ")
+          .pattern("SIS")
+          .pattern("PPP")
+          .define('S', Items.STICK)
+          .define('P', ItemTags.PLANKS)
+          .define('I', Items.IRON_INGOT)
+          .define('T', buildTool.get())
+          .unlockedBy("has_items", hasAllOf(buildTool.get(), ModBlocks.blockHutPlantation))
+          .save(consumer);
+
         ShapedRecipeBuilder.shaped(ModBlocks.blockSimpleQuarry)
                 .pattern("XTX")
                 .pattern("XDX")
@@ -240,6 +252,12 @@ public class DefaultRecipeProvider extends RecipeProvider
         return append(ForgeRegistries.ITEMS.getKey(item.asItem()), "", text);
     }
 
+    /**
+     * Standard hut block recipe pattern, using build tool and one unique item surrounded by planks.
+     * @param consumer the recipe consumer.
+     * @param output   the resulting hut block.
+     * @param input    the unique input item.
+     */
     private static void registerHutRecipe1(@NotNull final Consumer<FinishedRecipe> consumer,
                                            @NotNull final ItemLike output,
                                            @NotNull final ItemLike input)
@@ -255,6 +273,12 @@ public class DefaultRecipeProvider extends RecipeProvider
                 .save(consumer);
     }
 
+    /**
+     * Standard hut block recipe pattern, using build tool and one unique tag surrounded by planks.
+     * @param consumer the recipe consumer.
+     * @param output   the resulting hut block.
+     * @param input    the unique input tag.
+     */
     private static void registerHutRecipe1(@NotNull final Consumer<FinishedRecipe> consumer,
                                            @NotNull final ItemLike output,
                                            @NotNull final TagKey<Item> input)
@@ -272,6 +296,13 @@ public class DefaultRecipeProvider extends RecipeProvider
                 .save(consumer);
     }
 
+    /**
+     * Cheap hut block recipe pattern, using build tool and one unique item surrounded by planks.
+     * @param consumer the recipe consumer.
+     * @param output   the resulting hut block (produces 2).
+     * @param input    the unique input item.
+     * @param name     additional suffix for recipe name to avoid colliding with {@link #registerHutRecipe1}.
+     */
     private static void registerHutRecipe1x2(@NotNull final Consumer<FinishedRecipe> consumer,
                                              @NotNull final ItemLike output,
                                              @NotNull final ItemLike input,
@@ -288,6 +319,12 @@ public class DefaultRecipeProvider extends RecipeProvider
                 .save(consumer, append(output, name));
     }
 
+    /**
+     * Expensive hut block recipe pattern, using build tool and one unique item (thrice) surrounded by planks.
+     * @param consumer the recipe consumer.
+     * @param output   the resulting hut block.
+     * @param input    the unique input item (used three times).
+     */
     private static void registerHutRecipe3(@NotNull final Consumer<FinishedRecipe> consumer,
                                            @NotNull final ItemLike output,
                                            @NotNull final ItemLike input)
@@ -483,6 +520,17 @@ public class DefaultRecipeProvider extends RecipeProvider
                 .define('T', buildTool.get())
                 .unlockedBy("has_build_tool", has(buildTool.get()))
                 .save(consumer);
+
+        ShapedRecipeBuilder.shaped(ModItems.questLog)
+          .pattern("XTX")
+          .pattern("LPL")
+          .pattern("XPX")
+          .define('P', Items.PAPER)
+          .define('L', Items.LEATHER)
+          .define('X', Items.STICK)
+          .define('T', buildTool.get())
+          .unlockedBy("has_build_tool", has(buildTool.get()))
+          .save(consumer);
 
         ShapedRecipeBuilder.shaped(ModItems.resourceScroll)
                 .pattern("XTX")

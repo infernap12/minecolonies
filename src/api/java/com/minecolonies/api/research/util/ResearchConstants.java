@@ -17,7 +17,7 @@ public final class ResearchConstants
     /**
      * Base research time, default to 3h playtime.
      */
-    public static final int BASE_RESEARCH_TIME = 60 * 60 / 25;
+    public static final int BASE_RESEARCH_TIME = 60 * 60 / 25 / 2;
 
     /**
      * Constants to write the research to NBT.
@@ -139,7 +139,11 @@ public final class ResearchConstants
     public static final ResourceLocation KNIGHT_TAUNT      = new ResourceLocation(Constants.MOD_ID, "effects/knighttauntmobsunlock");
     public static final ResourceLocation FIRE_RES          = new ResourceLocation(Constants.MOD_ID, "effects/minerfireresunlock");
     public static final ResourceLocation ARROW_PIERCE      = new ResourceLocation(Constants.MOD_ID, "effects/piercingarrowsunlock");
-    public static final ResourceLocation PLANT_2           = new ResourceLocation(Constants.MOD_ID, "effects/plant2unlock");
+    public static final ResourceLocation PLANTATION_LARGE  = new ResourceLocation(Constants.MOD_ID, "effects/plantationlarge");
+    public static final ResourceLocation PLANTATION_JUNGLE = new ResourceLocation(Constants.MOD_ID, "effects/plantationjungle");
+    public static final ResourceLocation PLANTATION_SEA    = new ResourceLocation(Constants.MOD_ID, "effects/plantationsea");
+    public static final ResourceLocation PLANTATION_EXOTIC = new ResourceLocation(Constants.MOD_ID, "effects/plantationexotic");
+    public static final ResourceLocation PLANTATION_NETHER = new ResourceLocation(Constants.MOD_ID, "effects/plantationnether");
     public static final ResourceLocation BEEKEEP_2         = new ResourceLocation(Constants.MOD_ID, "effects/beekeep2unlock");
     public static final ResourceLocation PLATE_ARMOR       = new ResourceLocation(Constants.MOD_ID, "effects/platearmorunlock");
     public static final ResourceLocation RAILS             = new ResourceLocation(Constants.MOD_ID, "effects/railsunlock");
@@ -159,10 +163,17 @@ public final class ResearchConstants
     public static final ResourceLocation VACCINES          = new ResourceLocation(Constants.MOD_ID, "effects/vaccines");
     public static final ResourceLocation TELESCOPE          = new ResourceLocation(Constants.MOD_ID, "effects/telescope");
     public static final ResourceLocation STANDARD          = new ResourceLocation(Constants.MOD_ID, "effects/standard");
-
     public static final ResourceLocation MORE_AIR          = new ResourceLocation(Constants.MOD_ID, "effects/air");
-
     public static final ResourceLocation MIN_ORDER         = new ResourceLocation(Constants.MOD_ID, "effects/min_order");
+
+    //Recipe unlocks
+    public static final ResourceLocation THE_END           = new ResourceLocation(Constants.MOD_ID, "effects/knowledgeoftheendunlock");
+    public static final ResourceLocation THE_DEPTHS        = new ResourceLocation(Constants.MOD_ID, "effects/knowledgeofthedepthsunlock");
+    public static final ResourceLocation MORE_SCROLLS      = new ResourceLocation(Constants.MOD_ID, "effects/morescrollsunlock");
+    public static final ResourceLocation SIFTER_STRING     = new ResourceLocation(Constants.MOD_ID, "effects/sifterstringunlock");
+    public static final ResourceLocation SIFTER_FLINT      = new ResourceLocation(Constants.MOD_ID, "effects/sifterflintunlock");
+    public static final ResourceLocation SIFTER_IRON       = new ResourceLocation(Constants.MOD_ID, "effects/sifterironunlock");
+    public static final ResourceLocation SIFTER_DIAMOND    = new ResourceLocation(Constants.MOD_ID, "effects/sifterdiamondunlock");
 
     /**
      * Private constructor to hide implicit public one.

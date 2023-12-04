@@ -24,6 +24,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
 
+import static com.minecolonies.api.sounds.EventType.GREETING;
+import static com.minecolonies.api.sounds.EventType.SUCCESS;
+import static com.minecolonies.api.util.SoundUtils.playSoundAtCitizenWith;
 import static com.minecolonies.api.util.constant.CitizenConstants.MAX_CITIZEN_LEVEL;
 import static com.minecolonies.api.util.constant.Constants.MAX_BUILDING_LEVEL;
 import static com.minecolonies.api.util.constant.NbtTagConstants.*;
@@ -149,7 +152,7 @@ public class CitizenSkillHandler implements ICitizenSkillHandler
             return;
         }
 
-        final int levelCap = (int) citizen.getCitizenHappinessHandler().getHappiness(citizen.getColony());
+        final int levelCap = (int) citizen.getCitizenHappinessHandler().getHappiness(citizen.getColony(), citizen);
         if (skillMap.get(Skill.Intelligence).getA() < levelCap * 9)
         {
             addXpToSkill(Skill.Intelligence, 10, citizen);
@@ -205,7 +208,7 @@ public class CitizenSkillHandler implements ICitizenSkillHandler
         if (level > tuple.getA())
         {
             levelUp(data);
-            data.markDirty();
+            data.markDirty(10);
         }
     }
 
@@ -234,7 +237,7 @@ public class CitizenSkillHandler implements ICitizenSkillHandler
 
         if (level < tuple.getA())
         {
-            data.markDirty();
+            data.markDirty(10);
         }
     }
 
@@ -245,7 +248,7 @@ public class CitizenSkillHandler implements ICitizenSkillHandler
         if (data.getEntity().isPresent())
         {
             final AbstractEntityCitizen citizen = data.getEntity().get();
-            citizen.playSound(SoundEvents.PLAYER_LEVELUP, 1.0f, (float) SoundUtils.getRandomPitch(citizen.getRandom()));
+            playSoundAtCitizenWith(citizen.level, citizen.blockPosition(), SUCCESS, data);
             Network.getNetwork()
               .sendToTrackingEntity(new VanillaParticleMessage(citizen.getX(), citizen.getY(), citizen.getZ(), ParticleTypes.HAPPY_VILLAGER),
                 data.getEntity().get());

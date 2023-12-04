@@ -4,10 +4,8 @@ import com.google.gson.JsonObject;
 import com.minecolonies.api.research.IGlobalResearchBranch;
 import com.minecolonies.api.research.ResearchBranchType;
 import net.minecraft.nbt.CompoundTag;
-import net.minecraft.network.chat.MutableComponent;
 import net.minecraft.network.chat.contents.TranslatableContents;
 import net.minecraft.resources.ResourceLocation;
-import net.minecraft.network.chat.Component;
 
 import static com.minecolonies.api.research.util.ResearchConstants.BASE_RESEARCH_TIME;
 
@@ -82,10 +80,16 @@ public class GlobalResearchBranch implements IGlobalResearchBranch
     public TranslatableContents getSubtitle(){return this.subtitle;}
 
     @Override
-    public int getBaseTime(final int depth){return (int)(BASE_RESEARCH_TIME * this.baseTime * Math.pow(2, depth - 1));}
+    public int getBaseTime(final int depth)
+    {
+        return (int)(BASE_RESEARCH_TIME * this.baseTime * Math.pow(2, depth - 1));
+    }
 
     @Override
-    public double getHoursTime(final int depth){return (BASE_RESEARCH_TIME * this.baseTime * Math.pow(2, depth - 1)) / (BASE_RESEARCH_TIME * 2);}
+    public double getHoursTime(final int depth)
+    {
+        return (getBaseTime(depth) * 25.0) / 60 / 60;
+    }
 
     @Override
     public int getSortOrder(){return this.sortOrder;}

@@ -6,12 +6,14 @@ import com.minecolonies.api.colony.IColonyManager;
 import com.minecolonies.api.compatibility.Compatibility;
 import com.minecolonies.api.crafting.ItemStorage;
 import com.minecolonies.api.entity.citizen.AbstractEntityCitizen;
+import com.minecolonies.api.items.CheckedNbtKey;
 import com.minecolonies.api.items.ModItems;
 import com.minecolonies.api.util.constant.IToolType;
 import com.minecolonies.api.util.constant.ToolType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.nbt.ListTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.nbt.TagParser;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.tags.ItemTags;
@@ -35,6 +37,7 @@ import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
 import java.util.function.Predicate;
+import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
 import static com.minecolonies.api.items.ModTags.fungi;
@@ -45,6 +48,11 @@ import static com.minecolonies.api.util.constant.Constants.*;
  */
 public final class ItemStackUtils
 {
+    /**
+     * Pattern for {@link #parseIdTemplate}.
+     */
+    private static final Pattern TEMPLATE_PATH_PATTERN = Pattern.compile("\\[PATH(?::([^=]*)=([^]]*))?]");
+
     /**
      * Variable representing the empty itemstack in 1.10. Used for easy updating to 1.11
      */
@@ -83,11 +91,16 @@ public final class ItemStackUtils
     private static final int SILK_TOUCH_ENCHANT_ID = 33;
 
     /**
+     * List of the checked nbt sets for itemstack comparisons.
+     */
+    public static HashMap<Item, Set<CheckedNbtKey>> CHECKED_NBT_KEYS = new HashMap<>();
+
+    /**
      * True if this stack is a standard food item (has at least some healing and some saturation, not purely for effects).
      */
     public static final Predicate<ItemStack> ISFOOD =
-      stack -> ItemStackUtils.isNotEmpty(stack) && stack.isEdible() && stack.getItem().getFoodProperties() != null && stack.getItem().getFoodProperties().getNutrition() > 0
-                 && stack.getItem().getFoodProperties().getSaturationModifier() > 0;
+      stack -> ItemStackUtils.isNotEmpty(stack) && stack.isEdible() && stack.getFoodProperties(null) != null && stack.getFoodProperties(null).getNutrition() > 0
+                 && stack.getFoodProperties(null).getSaturationModifier() > 0;
 
     /**
      * Predicate describing things which work in the furnace.
@@ -260,13 +273,12 @@ public final class ItemStackUtils
      * @param stack The stack to check.
      * @return True when the stack is empty, false when not.
      */
-    @NotNull
-    public static Boolean isEmpty(@Nullable final ItemStack stack)
+    public static boolean isEmpty(@Nullable final ItemStack stack)
     {
         return stack == null || stack.isEmpty();
     }
 
-    public static Boolean isNotEmpty(@Nullable final ItemStack stack)
+    public static boolean isNotEmpty(@Nullable final ItemStack stack)
     {
         return !isEmpty(stack);
     }
@@ -303,50 +315,32 @@ public final class ItemStackUtils
             return Compatibility.getToolLevel(stack);
         }
 
-        if (ToolType.HOE.equals(toolType))
+        if (ToolType.HELMET.equals(toolType)
+                || ToolType.BOOTS.equals(toolType)
+                || ToolType.CHESTPLATE.equals(toolType)
+                || ToolType.LEGGINGS.equals(toolType))
         {
-            if (stack.getItem() instanceof HoeItem)
+            if (stack.getItem() instanceof final ArmorItem armorItem)
             {
-                final HoeItem hoeItem = (HoeItem) stack.getItem();
-                return hoeItem.getTier().getLevel();
+                return getArmorLevel(armorItem.getMaterial());
             }
         }
-        else if (ToolType.SWORD.equals(toolType))
+        else if (stack.getItem() instanceof final TieredItem tieredItem)  // most tools
         {
-            if (stack.getItem() instanceof SwordItem)
-            {
-                final SwordItem SwordItem = (SwordItem) stack.getItem();
-                return SwordItem.getTier().getLevel();
-            }
-
+            return tieredItem.getTier().getLevel();
         }
-        else if (ToolType.HELMET.equals(toolType)
-                   || ToolType.BOOTS.equals(toolType)
-                   || ToolType.CHESTPLATE.equals(toolType)
-                   || ToolType.LEGGINGS.equals(toolType))
-        {
-            if (stack.getItem() instanceof ArmorItem)
-            {
-                final ArmorItem ArmorItem = (ArmorItem) stack.getItem();
-                return getArmorLevel(ArmorItem.getMaterial());
-            }
-        }
-        else if (stack.getItem() instanceof FishingRodItem)
+        else if (toolType.equals(ToolType.FISHINGROD))
         {
             return getFishingRodLevel(stack);
         }
         else if (toolType.equals(ToolType.SHEARS))
         {
-            return stack.getItem() instanceof ShearsItem ? 0 : -1;
+            return 0;
         }
         else if (!toolType.hasVariableMaterials())
         {
             //We need a hut level 1 minimum
             return 1;
-        }
-        else if (stack.getItem() instanceof TieredItem)
-        {
-            return ((TieredItem) stack.getItem()).getTier().getLevel();
         }
         return -1;
     }
@@ -405,7 +399,7 @@ public final class ItemStackUtils
             {
                 if (!itemStack.canPerformAction(action))
                 {
-                    break;
+                    return false;
                 }
             }
             return true;
@@ -418,33 +412,33 @@ public final class ItemStackUtils
         {
             return itemStack.canPerformAction(ToolActions.SWORD_SWEEP) || Compatibility.isTinkersWeapon(itemStack);
         }
-        if (ToolType.FISHINGROD.equals(toolType))
+        if (ToolType.FISHINGROD.equals(toolType) && itemStack.canPerformAction(ToolActions.FISHING_ROD_CAST))
         {
-            return itemStack.getItem() instanceof FishingRodItem;
+            return true;
         }
-        if (ToolType.SHEARS.equals(toolType))
+        if (ToolType.SHEARS.equals(toolType) && itemStack.canPerformAction(ToolActions.SHEARS_DIG) && itemStack.canPerformAction(ToolActions.SHEARS_HARVEST))
         {
-            return itemStack.getItem() instanceof ShearsItem;
+            return true;
         }
         if (ToolType.HELMET.equals(toolType))
         {
-            return itemStack.getItem() instanceof ArmorItem;
+            return itemStack.getItem() instanceof ArmorItem armor && EquipmentSlot.HEAD.equals(armor.getSlot());
         }
         if (ToolType.LEGGINGS.equals(toolType))
         {
-            return itemStack.getItem() instanceof ArmorItem;
+            return itemStack.getItem() instanceof ArmorItem armor && EquipmentSlot.LEGS.equals(armor.getSlot());
         }
         if (ToolType.CHESTPLATE.equals(toolType))
         {
-            return itemStack.getItem() instanceof ArmorItem;
+            return itemStack.getItem() instanceof ArmorItem armor && EquipmentSlot.CHEST.equals(armor.getSlot());
         }
         if (ToolType.BOOTS.equals(toolType))
         {
-            return itemStack.getItem() instanceof ArmorItem;
+            return itemStack.getItem() instanceof ArmorItem armor && EquipmentSlot.FEET.equals(armor.getSlot());
         }
         if (ToolType.SHIELD.equals(toolType))
         {
-            return itemStack.getItem() instanceof ShieldItem;
+            return itemStack.getItem() instanceof ShieldItem;   //canPerformAction(ToolActions.SHIELD_BLOCK) ?
         }
         if (ToolType.FLINT_N_STEEL.equals(toolType))
         {
@@ -721,18 +715,13 @@ public final class ItemStackUtils
     }
 
     /**
-     * get the size of the stack. This is for compatibility between 1.10 and 1.11
+     * get the size of the stac
      *
      * @param stack to get the size from
      * @return the size of the stack
      */
     public static int getSize(@NotNull final ItemStack stack)
     {
-        if (ItemStackUtils.isEmpty(stack))
-        {
-            return 0;
-        }
-
         return stack.getCount();
     }
 
@@ -776,12 +765,28 @@ public final class ItemStackUtils
      * @param min         if the count of stack2 has to be at least the same as stack1.
      * @return True when they are equal except the stacksize, false when not.
      */
+    public static boolean compareItemStacksIgnoreStackSize(final ItemStack itemStack1, final ItemStack itemStack2, final boolean matchDamage, final boolean matchNBT, final boolean min)
+    {
+        return compareItemStacksIgnoreStackSize(itemStack1, itemStack2, matchDamage, matchNBT, false, false);
+    }
+
+    /**
+     * Method to compare to stacks, ignoring their stacksize.
+     *
+     * @param itemStack1  The left stack to compare.
+     * @param itemStack2  The right stack to compare.
+     * @param matchDamage Set to true to match damage data.
+     * @param matchNBT    Set to true to match nbt
+     * @param min         if the count of stack2 has to be at least the same as stack1.
+     * @return True when they are equal except the stacksize, false when not.
+     */
     public static boolean compareItemStacksIgnoreStackSize(
       final ItemStack itemStack1,
       final ItemStack itemStack2,
       final boolean matchDamage,
       final boolean matchNBT,
-      final boolean min)
+      final boolean min,
+      final boolean matchNBTExactly)
     {
         if (isEmpty(itemStack1) && isEmpty(itemStack2))
         {
@@ -806,31 +811,39 @@ public final class ItemStackUtils
                 return false;
             }
 
-            // Then sort on NBT
-            if (itemStack1.hasTag() && itemStack2.hasTag())
+            if (itemStack1.hasTag() || itemStack2.hasTag())
             {
+                if (matchNBTExactly)
+                {
+                    return Objects.equals(itemStack1.getTag(), itemStack2.getTag());
+                }
+                final Set<CheckedNbtKey> checkedKeys = CHECKED_NBT_KEYS.getOrDefault(itemStack1.getItem(), null);
+                if (checkedKeys == null)
+                {
+                    return itemStack1.hasTag() && itemStack2.hasTag() && itemStack1.getTag().equals(itemStack2.getTag());
+                }
+                if (itemStack1.hasTag() != itemStack2.hasTag() && !checkedKeys.isEmpty())
+                {
+                    return false;
+                }
+
+                if (checkedKeys.isEmpty())
+                {
+                    return true;
+                }
+
                 CompoundTag nbt1 = itemStack1.getTag();
                 CompoundTag nbt2 = itemStack2.getTag();
 
-                for (String key : nbt1.getAllKeys())
+                for (final CheckedNbtKey key : checkedKeys)
                 {
-                    if (!matchDamage && key.equals("Damage"))
-                    {
-                        continue;
-                    }
-                    if (!nbt2.contains(key) || !nbt1.get(key).equals(nbt2.get(key)))
+                    if (!key.matches(nbt1, nbt2))
                     {
                         return false;
                     }
                 }
-
-                return nbt1.getAllKeys().size() == nbt2.getAllKeys().size();
             }
-            else
-            {
-                return (!itemStack1.hasTag() || itemStack1.getTag().isEmpty())
-                         && (!itemStack2.hasTag() || itemStack2.getTag().isEmpty());
-            }
+            return true;
         }
         return false;
     }
@@ -1034,6 +1047,45 @@ public final class ItemStackUtils
             Log.getLogger().warn("Parsed item definition returned empty: " + itemData);
         }
         return stack;
+    }
+
+    /**
+     * Parses an item string (formatted for {@link #idToItemStack}) that may
+     * contain replaceable template components:
+     *
+     * <pre>
+     *     [NS]           => {@code baseItemId.getNamespace()}
+     *     [PATH]         => {@code baseItemId.getPath()}
+     *     [PATH:foo=bar] => {@code baseItemId.getPath()} but with "foo" replaced with "bar"</pre>
+     *
+     * @param value      the value to parse
+     * @param baseItemId the base item id to use to fill in the components
+     * @return a tuple of (boolean, result), where the boolean is false if result didn't resolve to a valid item
+     */
+    @NotNull
+    public static Tuple<Boolean, String> parseIdTemplate(@Nullable final String value,
+                                                         @NotNull final ResourceLocation baseItemId)
+    {
+        if (value == null)
+        {
+            return new Tuple<>(false, null);
+        }
+
+        final int nbtIndex = value.indexOf('{');
+        String itemId = nbtIndex < 0 ? value : value.substring(0, nbtIndex);
+
+        itemId = itemId.replace("[NS]", baseItemId.getNamespace());
+        itemId = TEMPLATE_PATH_PATTERN.matcher(itemId).replaceAll(m ->
+        {
+            if (m.group(1) != null && m.group(2) != null)
+            {
+                return baseItemId.getPath().replace(m.group(1), m.group(2));
+            }
+            return baseItemId.getPath();
+        });
+
+        return new Tuple<>(ForgeRegistries.ITEMS.containsKey(new ResourceLocation(itemId)),
+                itemId + (nbtIndex >= 0 ? value.substring(nbtIndex) : ""));
     }
 
     /**

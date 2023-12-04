@@ -52,8 +52,10 @@ import org.jetbrains.annotations.Nullable;
 import java.util.*;
 import java.util.function.Predicate;
 import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static com.minecolonies.api.research.util.ResearchConstants.RECIPES;
+import static com.minecolonies.api.util.constant.BuildingConstants.*;
 import static com.minecolonies.api.util.constant.NbtTagConstants.TAG_DISABLED_RECIPES;
 import static com.minecolonies.api.util.constant.NbtTagConstants.TAG_RECIPES;
 import static com.minecolonies.api.util.constant.TagConstants.CRAFTING_REDUCEABLE;
@@ -171,7 +173,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
      * @param crafterRecipes the list of custom recipes.
      * @return true if so.
      */
-    private boolean isPreTaughtRecipe(
+    protected boolean isPreTaughtRecipe(
       final IRecipeStorage storage,
       final Map<ResourceLocation, CustomRecipe> crafterRecipes)
     {
@@ -428,7 +430,17 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
             final IRecipeStorage recipeStorage = IColonyManager.getInstance().getRecipeManager().getRecipes().get(token);
             if (recipeStorage != null)
             {
-                building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable && ((IDeliverable) request.getRequest()).matches(recipeStorage.getPrimaryOutput()));
+                if (recipeStorage.getAlternateOutputs().isEmpty())
+                {
+                    building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable iDeliverable && iDeliverable.matches(recipeStorage.getPrimaryOutput()));
+                    return true;
+                }
+
+                final Stream<ItemStack> allOutputs = Stream.concat(Stream.of(recipeStorage.getPrimaryOutput()),
+                    recipeStorage.getAlternateOutputs().stream()).filter(stack -> !stack.isEmpty());
+
+                building.getColony().getRequestManager().onColonyUpdate(request ->
+                                                                          request.getRequest() instanceof IDeliverable delivery && allOutputs.anyMatch(delivery::matches));
             }
             return true;
         }
@@ -509,14 +521,14 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
                 if(duplicateFound == null)
                 {
                     addRecipeToList(recipeToken, true);
-                    building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable && ((IDeliverable) request.getRequest()).matches(recipeStorage.getPrimaryOutput()));
+                    building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable iDeliverable && iDeliverable.matches(recipeStorage.getPrimaryOutput()));
                     markDirty();
                 }
                 else if((forceReplace || newRecipe.getMustExist()) && !(duplicateFound.equals(recipeToken)))
                 {
                     //We found the base recipe for a multi-recipe, replace it with the multi-recipe
                     replaceRecipe(duplicateFound, recipeToken);
-                    building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable && ((IDeliverable) request.getRequest()).matches(recipeStorage.getPrimaryOutput()));
+                    building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable iDeliverable && iDeliverable.matches(recipeStorage.getPrimaryOutput()));
 
                     //Clean up old 'classic' recipes that the new multi-recipe replaces
                     final List<ItemStack> alternates = recipeStorage.getAlternateOutputs();
@@ -528,7 +540,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
                             removeRecipe(token);
                         }
                     }
-                    building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable && recipeStorage.getAlternateOutputs().stream().anyMatch(i -> ((IDeliverable) request.getRequest()).matches(i)));
+                    building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable iDeliverable && iDeliverable.matches(recipeStorage.getPrimaryOutput()));
                     markDirty();
                 }
             }
@@ -590,16 +602,20 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
                   recipe.getPrimaryOutput(),
                   Blocks.AIR);
 
-                replaceRecipe(recipe.getToken(), IColonyManager.getInstance().getRecipeManager().checkOrAddRecipe(storage));
+                final IToken<?> token = IColonyManager.getInstance().getRecipeManager().checkOrAddRecipe(storage);
+                if (isRecipeCompatibleWithCraftingModule(token))
+                {
+                    replaceRecipe(recipe.getToken(), token);
 
-                // Expected parameters for RECIPE_IMPROVED are Job, Result, Ingredient, Citizen
-                Component jobComponent = MessageUtils.format(citizen.getJob().getJobRegistryEntry().getTranslationKey()).create();
-                MessageUtils.format(RECIPE_IMPROVED + citizen.getRandom().nextInt(3),
-                    jobComponent,
-                    recipe.getPrimaryOutput().getHoverName(),
-                    reducedItem.getItemStack().getHoverName(),
-                    citizen.getName()
-                ).sendTo(building.getColony()).forAllPlayers();
+                    // Expected parameters for RECIPE_IMPROVED are Job, Result, Ingredient, Citizen
+                    Component jobComponent = MessageUtils.format(citizen.getJob().getJobRegistryEntry().getTranslationKey()).create();
+                    MessageUtils.format(RECIPE_IMPROVED + citizen.getRandom().nextInt(3),
+                      jobComponent,
+                      recipe.getPrimaryOutput().getHoverName(),
+                      reducedItem.getItemStack().getHoverName(),
+                      citizen.getName()
+                    ).sendTo(building.getColony()).forAllPlayers();
+                }
             }
         }
     }
@@ -798,7 +814,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
             final IRecipeStorage recipeStorage = IColonyManager.getInstance().getRecipeManager().getRecipes().get(token);
             if (recipeStorage != null)
             {
-                building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable && ((IDeliverable) request.getRequest()).matches(recipeStorage.getPrimaryOutput()));
+                building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable iDeliverable && iDeliverable.matches(recipeStorage.getPrimaryOutput()));
             }
         }
     }
@@ -880,7 +896,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
             final IRecipeStorage recipeStorage = IColonyManager.getInstance().getRecipeManager().getRecipes().get(key);
             if (recipeStorage != null)
             {
-                building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable && ((IDeliverable) request.getRequest()).matches(recipeStorage.getPrimaryOutput()));
+                building.getColony().getRequestManager().onColonyUpdate(request -> request.getRequest() instanceof IDeliverable iDeliverable && iDeliverable.matches(recipeStorage.getPrimaryOutput()));
             }
         }
         else
@@ -936,6 +952,12 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
         return true;
     }
 
+    @Override
+    public boolean isDisabled(final IToken<?> token)
+    {
+        return disabledRecipes.contains(token);
+    }
+
     /** This module is for standard crafters (3x3 by default) */
     public abstract static class Crafting extends AbstractCraftingBuildingModule
     {
@@ -969,7 +991,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
         @NotNull
         public String getId()
         {
-            return "crafting";
+            return MODULE_CRAFTING;
         }
     }
 
@@ -1006,7 +1028,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
         @NotNull
         public String getId()
         {
-            return "smelting";
+            return MODULE_SMELTING;
         }
     }
 
@@ -1043,7 +1065,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
         @NotNull
         public String getId()
         {
-            return "brewing";
+            return MODULE_BREWING;
         }
     }
 
@@ -1076,7 +1098,7 @@ public abstract class AbstractCraftingBuildingModule extends AbstractBuildingMod
         @NotNull
         public String getId()
         {
-            return "custom";
+            return MODULE_CUSTOM;
         }
     }
 }

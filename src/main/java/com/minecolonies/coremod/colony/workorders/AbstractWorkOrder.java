@@ -2,6 +2,8 @@ package com.minecolonies.coremod.colony.workorders;
 
 import com.google.common.collect.BiMap;
 import com.google.common.collect.HashBiMap;
+import com.ldtteam.structurize.blueprints.v1.Blueprint;
+import com.ldtteam.structurize.storage.StructurePacks;
 import com.minecolonies.api.colony.ICitizenData;
 import com.minecolonies.api.colony.IColony;
 import com.minecolonies.api.colony.jobs.IJob;
@@ -13,16 +15,11 @@ import com.minecolonies.api.util.BlockPosUtil;
 import com.minecolonies.api.util.Log;
 import com.minecolonies.api.util.Tuple;
 import com.minecolonies.coremod.colony.buildings.workerbuildings.BuildingBuilder;
-import com.minecolonies.coremod.colony.workorders.view.AbstractWorkOrderView;
-import com.minecolonies.coremod.colony.workorders.view.WorkOrderBuildingView;
-import com.minecolonies.coremod.colony.workorders.view.WorkOrderDecorationView;
-import com.minecolonies.coremod.colony.workorders.view.WorkOrderMinerView;
+import com.minecolonies.coremod.colony.workorders.view.*;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.Component;
-import net.minecraft.world.level.block.entity.BlockEntity;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -30,6 +27,7 @@ import java.lang.reflect.Constructor;
 import java.lang.reflect.InvocationTargetException;
 import java.util.Map;
 import java.util.Optional;
+import java.util.concurrent.Future;
 
 import static com.minecolonies.api.util.constant.Suppression.UNUSED_METHOD_PARAMETERS_SHOULD_BE_REMOVED;
 
@@ -72,6 +70,7 @@ public abstract class AbstractWorkOrder implements IWorkOrder
     {
         addMapping("building", WorkOrderBuilding.class, WorkOrderBuildingView.class);
         addMapping("decoration", WorkOrderDecoration.class, WorkOrderDecorationView.class);
+        addMapping("plantation_field", WorkOrderPlantationField.class, WorkOrderPlantationFieldView.class);
         addMapping("miner", WorkOrderMiner.class, WorkOrderMinerView.class);
     }
 
@@ -98,7 +97,7 @@ public abstract class AbstractWorkOrder implements IWorkOrder
     /**
      * The structurize schematic name.
      */
-    private String packName;
+    protected String packName;
 
     /**
      * The work order name.
@@ -158,7 +157,7 @@ public abstract class AbstractWorkOrder implements IWorkOrder
     /**
      * Internal flag to see if anything has been changed.
      */
-    private boolean changed;
+    protected boolean changed;
 
     /**
      * Add a given Work Order mapping.
@@ -400,6 +399,12 @@ public abstract class AbstractWorkOrder implements IWorkOrder
     public String getStructurePack()
     {
         return packName;
+    }
+
+    @Override
+    public Future<Blueprint> getBlueprintFuture()
+    {
+        return StructurePacks.getBlueprintFuture(getStructurePack(), getStructurePath());
     }
 
     @Override

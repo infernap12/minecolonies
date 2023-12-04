@@ -6,6 +6,7 @@ import com.minecolonies.api.colony.*;
 import com.minecolonies.api.colony.buildings.registry.IBuildingDataManager;
 import com.minecolonies.api.colony.buildings.views.IBuildingView;
 import com.minecolonies.api.colony.buildings.workerbuildings.ITownHallView;
+import com.minecolonies.api.colony.fields.IField;
 import com.minecolonies.api.colony.managers.interfaces.*;
 import com.minecolonies.api.colony.permissions.ColonyPlayer;
 import com.minecolonies.api.colony.permissions.IPermissions;
@@ -17,11 +18,13 @@ import com.minecolonies.api.colony.workorders.IWorkManager;
 import com.minecolonies.api.colony.workorders.IWorkOrderView;
 import com.minecolonies.api.entity.citizen.AbstractEntityCitizen;
 import com.minecolonies.api.network.IMessage;
+import com.minecolonies.api.quests.IQuestManager;
 import com.minecolonies.api.research.IResearchManager;
 import com.minecolonies.api.util.BlockPosUtil;
 import com.minecolonies.api.util.Log;
 import com.minecolonies.api.util.constant.Constants;
 import com.minecolonies.coremod.Network;
+import com.minecolonies.coremod.client.render.worldevent.ColonyBlueprintRenderer;
 import com.minecolonies.coremod.colony.buildings.views.AbstractBuildingView;
 import com.minecolonies.coremod.colony.buildings.workerbuildings.BuildingTownHall;
 import com.minecolonies.coremod.colony.managers.ResearchManager;
@@ -33,6 +36,7 @@ import com.minecolonies.coremod.datalistener.CitizenNameListener;
 import com.minecolonies.coremod.network.messages.PermissionsMessage;
 import com.minecolonies.coremod.network.messages.server.colony.ColonyFlagChangeMessage;
 import com.minecolonies.coremod.network.messages.server.colony.TownHallRenameMessage;
+import com.minecolonies.coremod.quests.QuestManager;
 import net.minecraft.ChatFormatting;
 import net.minecraft.client.Minecraft;
 import net.minecraft.core.BlockPos;
@@ -57,6 +61,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.util.*;
+import java.util.function.Predicate;
 
 import static com.minecolonies.api.util.constant.NbtTagConstants.TAG_BANNER_PATTERNS;
 
@@ -74,11 +79,15 @@ public final class ColonyView implements IColonyView
     //  General Attributes
     private final int                            id;
     private final Map<Integer, IWorkOrderView>   workOrders  = new HashMap<>();
+    private final Map<Integer, BlockPos>         workOrderClaimCache = new HashMap<>();
+    private int                                  workOrderCachedCount;
     //  Administration/permissions
     @NotNull
     private final PermissionsView                permissions = new PermissionsView();
     @NotNull
     private final Map<BlockPos, IBuildingView>   buildings   = new HashMap<>();
+    @NotNull
+    private final Set<IField>                    fields      = new HashSet<>();
     //  Citizenry
     @NotNull
     private final Map<Integer, ICitizenDataView> citizens    = new HashMap<>();
@@ -95,8 +104,8 @@ public final class ColonyView implements IColonyView
      * The colony flag (set to plain white as default)
      */
     private ListTag        colonyFlag      = new BannerPattern.Builder()
-        .addPattern(BannerPatterns.BASE, DyeColor.WHITE)
-        .toListTag();
+                                               .addPattern(BannerPatterns.BASE, DyeColor.WHITE)
+                                               .toListTag();
 
     private BlockPos center = BlockPos.ZERO;
 
@@ -207,7 +216,7 @@ public final class ColonyView implements IColonyView
     /**
      * The research effects of the colony.
      */
-    private final IResearchManager manager;
+    private final IResearchManager researchManager;
 
     /**
      * Whether spies are active and highlight enemy positions.
@@ -241,6 +250,11 @@ public final class ColonyView implements IColonyView
     private IStatisticsManager statisticManager = new StatisticsManager(this);
 
     /**
+     * Client side quest manager.
+     */
+    private IQuestManager questManager;
+
+    /**
      * Day in the colony.
      */
     private int day;
@@ -253,7 +267,8 @@ public final class ColonyView implements IColonyView
     private ColonyView(final int id)
     {
         this.id = id;
-        this.manager = new ResearchManager(this);
+        this.researchManager = new ResearchManager(this);
+        this.questManager = new QuestManager(this);
     }
 
     /**
@@ -411,10 +426,6 @@ public final class ColonyView implements IColonyView
             buf.writeUtf(col.getDimension().location().toString());
         }
 
-        final CompoundTag treeTag = new CompoundTag();
-        colony.getResearchManager().writeToNBT(treeTag);
-        buf.writeNbt(treeTag);
-
         if (hasNewSubscribers || colony.isTicketedChunksDirty())
         {
             buf.writeInt(colony.getTicketedChunks().size());
@@ -432,6 +443,7 @@ public final class ColonyView implements IColonyView
         colony.getGraveManager().write(graveTag);
         buf.writeNbt(graveTag);     // this could be more efficient, but it should usually be short anyway
         colony.getStatisticsManager().serialize(buf);
+        buf.writeNbt(colony.getQuestManager().serializeNBT());
         buf.writeInt(colony.getDay());
     }
 
@@ -630,6 +642,12 @@ public final class ColonyView implements IColonyView
     public int getLoadedChunkCount()
     {
         return 0;
+    }
+
+    @Override
+    public Set<Long> getLoadedChunks()
+    {
+        return null;
     }
 
     @Override
@@ -899,8 +917,6 @@ public final class ColonyView implements IColonyView
               ResourceKey.create(Registry.DIMENSION_REGISTRY, new ResourceLocation(buf.readUtf(32767)))));
         }
 
-        this.manager.readFromNBT(buf.readNbt());
-
         final int ticketChunkCount = buf.readInt();
         if (ticketChunkCount != -1)
         {
@@ -913,6 +929,7 @@ public final class ColonyView implements IColonyView
 
         this.graveManager.read(buf.readNbt());
         this.statisticManager.deserialize(buf);
+        this.questManager.deserializeNBT(buf.readNbt());
         this.day = buf.readInt();
         return null;
     }
@@ -941,6 +958,8 @@ public final class ColonyView implements IColonyView
     @Nullable
     public IMessage handleColonyViewWorkOrderMessage(final FriendlyByteBuf buf)
     {
+        boolean claimsChanged = false;
+
         workOrders.clear();
         final int amount = buf.readInt();
         for (int i = 0; i < amount; i++)
@@ -949,14 +968,23 @@ public final class ColonyView implements IColonyView
             if (workOrder != null)
             {
                 workOrders.put(workOrder.getId(), workOrder);
+
+                final BlockPos oldClaimedBy = workOrderClaimCache.put(workOrder.getId(), workOrder.getClaimedBy());
+                claimsChanged |= !Objects.equals(workOrder.getClaimedBy(), oldClaimedBy);
             }
+        }
+
+        if (claimsChanged || workOrders.size() != workOrderCachedCount)
+        {
+            workOrderCachedCount = workOrders.size();
+            ColonyBlueprintRenderer.invalidateCache();
         }
 
         return null;
     }
 
     /**
-     * Update a ColonyView's citizens given a network data ColonyView update packet. This uses a full-replacement - citizens do not get updated and are instead overwritten.
+     * Update a ColonyView's citizens given a network data ColonyView update packet. The ICitizenManager makes sure to update citizens instead of replacing them.
      *
      * @param id  ID of the citizen.
      * @param buf Network data.
@@ -1081,6 +1109,35 @@ public final class ColonyView implements IColonyView
         }
 
         return null;
+    }
+
+    @Override
+    public void handleColonyViewResearchManagerUpdate(final CompoundTag compoundTag)
+    {
+        this.researchManager.readFromNBT(compoundTag);
+    }
+
+    @Override
+    public void handleColonyFieldViewUpdateMessage(final Set<IField> fields)
+    {
+        this.fields.clear();
+        this.fields.addAll(fields);
+    }
+
+    @Override
+    public @NotNull List<IField> getFields(final Predicate<IField> matcher)
+    {
+        return fields.stream()
+                 .filter(matcher)
+                 .toList();
+    }
+
+    @Override
+    public @Nullable IField getField(final Predicate<IField> matcher)
+    {
+        return getFields(matcher).stream()
+                 .findFirst()
+                 .orElse(null);
     }
 
     /**
@@ -1539,7 +1596,7 @@ public final class ColonyView implements IColonyView
     @Override
     public IResearchManager getResearchManager()
     {
-        return manager;
+        return researchManager;
     }
 
     @Override
@@ -1589,5 +1646,11 @@ public final class ColonyView implements IColonyView
     public int getDay()
     {
         return this.day;
+    }
+
+    @Override
+    public IQuestManager getQuestManager()
+    {
+        return this.questManager;
     }
 }

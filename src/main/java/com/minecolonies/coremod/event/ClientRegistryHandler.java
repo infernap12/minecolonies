@@ -1,7 +1,9 @@
 package com.minecolonies.coremod.event;
 
 import com.minecolonies.api.blocks.ModBlocks;
+import com.minecolonies.api.client.ModKeyMappings;
 import com.minecolonies.api.client.render.modeltype.CitizenModel;
+import com.minecolonies.api.crafting.registry.ModRecipeSerializer;
 import com.minecolonies.api.entity.ModEntities;
 import com.minecolonies.api.items.ModItems;
 import com.minecolonies.api.tileentities.MinecoloniesTileEntities;
@@ -27,6 +29,8 @@ import com.minecolonies.coremod.client.render.mobs.pirates.RendererChiefPirate;
 import com.minecolonies.coremod.client.render.mobs.pirates.RendererPirate;
 import com.minecolonies.coremod.client.render.projectile.FireArrowRenderer;
 import com.minecolonies.coremod.client.render.projectile.RendererSpear;
+import com.minecolonies.coremod.client.render.worldevent.ColonyBlueprintRenderer;
+import net.minecraft.client.RecipeBookCategories;
 import net.minecraft.client.model.geom.ModelLayerLocation;
 import net.minecraft.client.model.geom.ModelLayers;
 import net.minecraft.client.renderer.ItemBlockRenderTypes;
@@ -39,7 +43,11 @@ import net.minecraft.resources.ResourceLocation;
 import net.minecraftforge.api.distmarker.Dist;
 import net.minecraftforge.api.distmarker.OnlyIn;
 import net.minecraftforge.client.event.EntityRenderersEvent;
+import net.minecraftforge.client.event.RegisterItemDecorationsEvent;
+import net.minecraftforge.client.event.RegisterKeyMappingsEvent;
+import net.minecraftforge.client.event.RegisterRecipeBookCategoriesEvent;
 import net.minecraftforge.eventbus.api.SubscribeEvent;
+import org.jetbrains.annotations.NotNull;
 
 import java.util.Arrays;
 
@@ -250,6 +258,13 @@ public class ClientRegistryHandler
 
     @OnlyIn(Dist.CLIENT)
     @SubscribeEvent
+    public static void onRegisterItemDecorations(final RegisterItemDecorationsEvent event)
+    {
+        event.register(ModItems.clipboard, new ClipBoardDecorator());
+    }
+
+    @OnlyIn(Dist.CLIENT)
+    @SubscribeEvent
     public static void doClientStuff(final EntityRenderersEvent.RegisterRenderers event)
     {
         event.registerEntityRenderer(ModEntities.CITIZEN, RenderBipedCitizen::new);
@@ -289,6 +304,7 @@ public class ClientRegistryHandler
         event.registerBlockEntityRenderer(MinecoloniesTileEntities.ENCHANTER.get(), TileEntityEnchanterRenderer::new);
         event.registerBlockEntityRenderer(MinecoloniesTileEntities.COLONY_FLAG.get(), TileEntityColonyFlagRenderer::new);
         event.registerBlockEntityRenderer(MinecoloniesTileEntities.NAMED_GRAVE.get(), TileEntityNamedGraveRenderer::new);
+        event.registerBlockEntityRenderer(MinecoloniesTileEntities.DECO_CONTROLLER.get(), TileEntityDecoControllerRenderer::new);
 
         Arrays.stream(ModBlocks.getHuts())
           .forEach(hut -> ItemBlockRenderTypes.setRenderLayer(hut, renderType -> renderType.equals(RenderType.cutout()) || renderType.equals(RenderType.solid())));
@@ -301,6 +317,22 @@ public class ClientRegistryHandler
 
         ItemProperties.register(ModItems.spear, new ResourceLocation("throwing"), (item, world, entity, light) ->
                                                                            (entity != null && entity.isUsingItem() && entity.getUseItem() == item) ? 1.0F : 0.0F);
+        ItemProperties.register(ModItems.buildGoggles, new ResourceLocation("disabled"), (item, world, entity, light) ->
+                (ColonyBlueprintRenderer.willRenderBlueprints() ? 0.0F : 1.0F));
+    }
 
+    @OnlyIn(Dist.CLIENT)
+    @SubscribeEvent
+    public static void registerRecipeBookCategories(@NotNull final RegisterRecipeBookCategoriesEvent event)
+    {
+        // not worthwhile creating a category for compost, as we never unlock them in the book; this hides some warnings
+        event.registerRecipeCategoryFinder(ModRecipeSerializer.CompostRecipeType.get(), r -> RecipeBookCategories.UNKNOWN);
+    }
+
+    @OnlyIn(Dist.CLIENT)
+    @SubscribeEvent
+    public static void registerKeys(final RegisterKeyMappingsEvent event)
+    {
+        ModKeyMappings.register(event);
     }
 }

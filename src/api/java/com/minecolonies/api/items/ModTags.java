@@ -25,11 +25,19 @@ public class ModTags
 
     public static final TagKey<Block> decorationItems = BlockTags.create(TagConstants.DECORATION_ITEMS);
     public static final TagKey<Item>  concretePowder  = ItemTags.create(TagConstants.CONCRETE_POWDER);
-    public static final TagKey<Block> concreteBlock = BlockTags.create(TagConstants.CONCRETE_BLOCK);
-    public static final TagKey<Block> pathingBlocks = BlockTags.create(TagConstants.PATHING_BLOCKS);
+    public static final TagKey<Block> concreteBlock   = BlockTags.create(TagConstants.CONCRETE_BLOCK);
+    public static final TagKey<Block> pathingBlocks   = BlockTags.create(TagConstants.PATHING_BLOCKS);
+    public static final TagKey<Block> tier1blocks     = BlockTags.create(TagConstants.TIER1_BLOCKS);
+    public static final TagKey<Block> tier2blocks     = BlockTags.create(TagConstants.TIER2_BLOCKS);
+    public static final TagKey<Block> tier3blocks     = BlockTags.create(TagConstants.TIER3_BLOCKS);
+    public static final TagKey<Block> tier4blocks     = BlockTags.create(TagConstants.TIER4_BLOCKS);
+    public static final TagKey<Block> tier5blocks     = BlockTags.create(TagConstants.TIER5_BLOCKS);
+    public static final TagKey<Block> tier6blocks     = BlockTags.create(TagConstants.TIER6_BLOCKS);
+    public static final TagKey<Block> mangroveTree    = BlockTags.create(TagConstants.MANGROVE_TREE_BLOCKS);
+    public static final TagKey<Block> tree            = BlockTags.create(TagConstants.TREE_BLOCKS);
 
     public static final TagKey<Block> colonyProtectionException = BlockTags.create(TagConstants.COLONYPROTECTIONEXCEPTION);
-    public static final TagKey<Block> indestructible = BlockTags.create(TagConstants.INDESTRUCTIBLE);
+    public static final TagKey<Block> indestructible            = BlockTags.create(TagConstants.INDESTRUCTIBLE);
 
     public static final TagKey<Block> oreChanceBlocks = BlockTags.create(TagConstants.ORECHANCEBLOCKS);
 
@@ -51,10 +59,16 @@ public class ModTags
     public static final TagKey<EntityType<?>> hostile = TagKey.create(Registry.ENTITY_TYPE_REGISTRY, TagConstants.HOSTILE);
     public static final TagKey<EntityType<?>> mobAttackBlacklist = TagKey.create(Registry.ENTITY_TYPE_REGISTRY, TagConstants.MOB_ATTACK_BLACKLIST);
 
+    public static final TagKey<EntityType<?>> raiders = TagKey.create(Registry.ENTITY_TYPE_REGISTRY, TagConstants.RAIDERS);
+
+    public static final TagKey<Item> ignoreNBT = ItemTags.create(TagConstants.IGNORE_NBT);
+
     public static final Map<String, TagKey<Item>> crafterProduct              = new HashMap<>();
     public static final Map<String, TagKey<Item>> crafterProductExclusions    = new HashMap<>();
     public static final Map<String, TagKey<Item>> crafterIngredient           = new HashMap<>();
     public static final Map<String, TagKey<Item>> crafterIngredientExclusions = new HashMap<>();
+    public static final Map<String, TagKey<Item>> crafterDoIngredient         = new HashMap<>();
+
 
     /**
      * Tag specifier for Products to Include
@@ -75,6 +89,11 @@ public class ModTags
      * Tag specifier for Ingredients to exclude
      */
     private static final String INGREDIENT_EXCLUDED = "_ingredient_excluded";
+
+    /**
+     * Tag specifier for Ingredients to include
+     */
+    private static final String DO_INGREDIENT = "_do_ingredient";
 
     public static void init()
     {
@@ -106,11 +125,13 @@ public class ModTags
         final ResourceLocation ingredients = new ResourceLocation(MOD_ID, crafterName.concat(INGREDIENT));
         final ResourceLocation productsExcluded = new ResourceLocation(MOD_ID, crafterName.concat(PRODUCT_EXCLUDED));
         final ResourceLocation ingredientsExcluded = new ResourceLocation(MOD_ID, crafterName.concat(INGREDIENT_EXCLUDED));
+        final ResourceLocation doIngredients = new ResourceLocation(MOD_ID, crafterName.concat(DO_INGREDIENT));
 
         crafterProduct.put(crafterName, ItemTags.create(products));
         crafterProductExclusions.put(crafterName, ItemTags.create(productsExcluded));
         crafterIngredient.put(crafterName, ItemTags.create(ingredients));
         crafterIngredientExclusions.put(crafterName, ItemTags.create(ingredientsExcluded));
+        crafterDoIngredient.put(crafterName, ItemTags.create(doIngredients));
     }
 
     private ModTags()

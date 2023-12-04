@@ -2,74 +2,95 @@ package com.minecolonies.coremod.generation.defaults;
 
 import com.google.common.collect.ImmutableList;
 import com.google.gson.JsonObject;
-import com.minecolonies.api.colony.jobs.registry.IJobRegistry;
-import com.minecolonies.api.colony.jobs.registry.JobEntry;
+import com.minecolonies.api.colony.jobs.ModJobs;
 import com.minecolonies.api.entity.mobs.RaiderType;
 import com.minecolonies.api.sounds.EventType;
 import com.minecolonies.api.util.constant.Constants;
 import com.minecolonies.coremod.generation.DataGeneratorConstants;
 import net.minecraft.data.CachedOutput;
 import net.minecraft.data.DataGenerator;
-import net.minecraft.data.HashCache;
 import net.minecraft.data.DataProvider;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.packs.PackType;
+import net.minecraft.server.packs.resources.Resource;
+import net.minecraftforge.common.data.ExistingFileHelper;
 import org.jetbrains.annotations.NotNull;
 
-import java.io.IOException;
+import java.io.*;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 
 import static com.ldtteam.datagenerators.sounds.SoundsJson.createSoundJson;
+import static com.minecolonies.api.sounds.ModSoundEvents.CITIZEN_SOUND_EVENT_PREFIX;
 
 public class DefaultSoundProvider implements DataProvider
 {
     private final DataGenerator generator;
+    private final ExistingFileHelper fileHelper;
     private JsonObject sounds;
 
-    public DefaultSoundProvider(final DataGenerator generator)
+    public DefaultSoundProvider(final DataGenerator generator, final ExistingFileHelper existingFileHelper)
     {
         this.generator = generator;
+        this.fileHelper = existingFileHelper;
     }
 
     @Override
     public void run(@NotNull final CachedOutput cache) throws IOException
     {
         sounds = new JsonObject();
+        final File soundFolder = this.generator.getOutputFolder()
+                                   .getParent()
+                                   .getParent()
+                                   .getParent()
+                                   .resolve("main")
+                                   .resolve("resources")
+                                   .resolve("assets")
+                                   .resolve("minecolonies")
+                                   .resolve("sounds")
+                                   .resolve("mob")
+                                   .resolve("citizen")
+                                   .toFile();
+        final List<ResourceLocation> mainTypes = new ArrayList<>(ModJobs.getJobs());
+        mainTypes.remove(ModJobs.placeHolder.getId());
+        mainTypes.add(new ResourceLocation(Constants.MOD_ID, "unemployed"));
+        mainTypes.add(new ResourceLocation(Constants.MOD_ID, "visitor"));
 
-        final List<String> defaultMaleSounds = new ArrayList<>();
-        defaultMaleSounds.add("minecolonies:mob/citizen/male/say1");
-        defaultMaleSounds.add("minecolonies:mob/citizen/male/say2");
-        defaultMaleSounds.add("minecolonies:mob/citizen/male/say3");
-
-        final List<String> defaultFemaleSounds = new ArrayList<>();
-        defaultFemaleSounds.add("minecolonies:mob/citizen/female/say1");
-        defaultFemaleSounds.add("minecolonies:mob/citizen/female/say2");
-        defaultFemaleSounds.add("minecolonies:mob/citizen/female/say3");
-
-        final List<String> childSounds = new ArrayList<>();
-        childSounds.add("minecolonies:mob/citizen/child/laugh1");
-        childSounds.add("minecolonies:mob/citizen/child/laugh2");
-
-        for (final JobEntry job : IJobRegistry.getInstance().getValues())
+        if (soundFolder.isDirectory())
         {
-            if (job.getKey().getNamespace().equals(Constants.MOD_ID) && !job.getKey().getPath().equals("placeholder"))
+            final File[] list = soundFolder.listFiles();
+            for (final File file : list)
             {
-                for (final EventType soundEvents : EventType.values())
+                final String name = file.getName();
+                if (file.isDirectory())
                 {
-                    sounds.add("mob." + job.getKey().getPath() + ".male." + soundEvents.name().toLowerCase(Locale.US),
-                      createSoundJson("neutral", getDefaultProperties(), defaultMaleSounds));
-                    sounds.add("mob." + job.getKey().getPath() + ".female." + soundEvents.name().toLowerCase(Locale.US),
-                      createSoundJson("neutral", getDefaultProperties(), defaultFemaleSounds));
+                    final List<String> soundList = new ArrayList<>();
+                    final File[] subList = file.listFiles();
+
+                    for (final File soundFile : subList)
+                    {
+                        final String soundName = soundFile.getName();
+                        soundList.add("minecolonies:mob/citizen/" + name + "/" + soundName.replace(".ogg", ""));
+                    }
+
+                    for (final ResourceLocation job : mainTypes)
+                    {
+                        for (final EventType event : EventType.values())
+                        {
+                            sounds.add(CITIZEN_SOUND_EVENT_PREFIX + job.getPath() + "." + name + "." + event.getId(),
+                              createSoundJson("neutral", getDefaultProperties(), soundList));
+                        }
+                    }
                 }
             }
         }
 
-        for (final EventType soundEvents : EventType.values())
-        {
-            sounds.add("mob.citizen.male." + soundEvents.name().toLowerCase(Locale.US), createSoundJson("neutral", getDefaultProperties(), defaultMaleSounds));
-            sounds.add("mob.citizen.female." + soundEvents.name().toLowerCase(Locale.US), createSoundJson("neutral", getDefaultProperties(), defaultFemaleSounds));
-        }
+        final List<String> childSounds = new ArrayList<>();
+        childSounds.add("minecolonies:mob/citizen/child/laugh1");
+        childSounds.add("minecolonies:mob/citizen/child/laugh2");
 
         for (final EventType soundEvents : EventType.values())
         {

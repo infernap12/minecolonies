@@ -8,8 +8,11 @@ import com.minecolonies.api.colony.ICitizenDataView;
 import com.minecolonies.api.colony.jobs.IJob;
 import com.minecolonies.api.colony.requestsystem.location.ILocation;
 import com.minecolonies.api.entity.MinecoloniesMinecart;
-import com.minecolonies.api.entity.ai.DesiredActivity;
 import com.minecolonies.api.entity.ai.pathfinding.IWalkToProxy;
+import com.minecolonies.api.entity.ai.statemachine.states.EntityState;
+import com.minecolonies.api.entity.ai.statemachine.states.IState;
+import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.ITickRateStateMachine;
+import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.TickRateStateMachine;
 import com.minecolonies.api.entity.citizen.citizenhandlers.*;
 import com.minecolonies.api.entity.pathfinding.AbstractAdvancedPathNavigate;
 import com.minecolonies.api.entity.pathfinding.PathingStuckHandler;
@@ -18,6 +21,7 @@ import com.minecolonies.api.inventory.InventoryCitizen;
 import com.minecolonies.api.sounds.EventType;
 import com.minecolonies.api.util.CompatibilityUtils;
 import com.minecolonies.api.util.ItemStackUtils;
+import com.minecolonies.api.util.Log;
 import com.minecolonies.api.util.SoundUtils;
 import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.BlockPos;
@@ -44,10 +48,8 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.minecraftforge.items.IItemHandler;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.List;
-import java.util.Random;
 
 import static com.minecolonies.api.util.constant.CitizenConstants.*;
 
@@ -124,12 +126,20 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
     private boolean isEquipmentDirty = true;
 
     /**
+     * The AI for citizens, controlling different global states
+     */
+    protected ITickRateStateMachine<IState> entityStateController = new TickRateStateMachine<>(EntityState.INIT,
+      e -> Log.getLogger()
+        .warn("Citizen " + getDisplayName().getString() + " id:" + (getCitizenData() != null ? getCitizenData().getId() : -1) + "from colony: "
+                + getCitizenColonyHandler().getColonyId() + " state controller exception", e));
+
+    /**
      * Constructor for a new citizen typed entity.
      *
      * @param type  the Entity type.
      * @param world the world.
      */
-    public AbstractEntityCitizen(final EntityType<? extends AgeableMob> type, final Level world)
+    public AbstractEntityCitizen(final EntityType<? extends PathfinderMob> type, final Level world)
     {
         super(type, world);
     }
@@ -201,7 +211,18 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
     {
         if (!player.level.isClientSide())
         {
-            SoundUtils.playSoundAtCitizenWith(CompatibilityUtils.getWorldFromCitizen(this), this.blockPosition(), EventType.INTERACTION, this.getCitizenData());
+            if (this.getPose() == Pose.SLEEPING)
+            {
+                SoundUtils.playSoundAtCitizenWith(CompatibilityUtils.getWorldFromCitizen(this), this.blockPosition(), EventType.OFF_TO_BED, this.getCitizenData(), 100);
+            }
+            else if (getCitizenData() != null && getCitizenData().isIdleAtJob())
+            {
+                SoundUtils.playSoundAtCitizenWith(CompatibilityUtils.getWorldFromCitizen(this), this.blockPosition(), EventType.MISSING_EQUIPMENT, this.getCitizenData(), 100);
+            }
+            else
+            {
+                SoundUtils.playSoundAtCitizenWith(CompatibilityUtils.getWorldFromCitizen(this), this.blockPosition(), EventType.INTERACTION, this.getCitizenData(), 100);
+            }
         }
 
         return super.interactAt(player, vec, hand);
@@ -273,18 +294,6 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
         return modelId;
     }
 
-    /**
-     * For the time being we don't want any childrens of our colonists.
-     *
-     * @return the child.
-     */
-    @Nullable
-    @Override
-    public AgeableMob getBreedOffspring(final ServerLevel world, final AgeableMob parent)
-    {
-        return null;
-    }
-
     @Override
     protected void defineSynchedData()
     {
@@ -340,6 +349,20 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
     }
 
     /**
+     * Don't push if we're ignoring being pushed
+     */
+    @Override
+    public void pushEntities()
+    {
+        if (collisionCounter > COLL_THRESHOLD)
+        {
+            return;
+        }
+
+        super.pushEntities();
+    }
+
+    /**
      * Ignores entity collisions are colliding for a while, solves stuck e.g. for many trying to take the same door
      *
      * @param entityIn entity to collide with
@@ -372,7 +395,7 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
             super.onPlayerCollide(player);
             return;
         }
-        
+
         final IJob<?> job = getCitizenData().getJob();
         if (job == null || !job.isGuard())
         {
@@ -399,29 +422,12 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
     public void aiStep()
     {
         super.aiStep();
+        entityStateController.tick();
         updateSwingTime();
         if (collisionCounter > 0)
         {
             collisionCounter--;
         }
-    }
-
-    @Override
-    protected void tryAddSoulSpeed()
-    {
-
-    }
-
-    @Override
-    protected void removeSoulSpeed()
-    {
-
-    }
-
-    @Override
-    public boolean canSpawnSoulSpeedParticle()
-    {
-        return false;
     }
 
     /**
@@ -566,17 +572,6 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
     @NotNull
     public abstract IItemHandler getItemHandlerCitizen();
 
-    @NotNull
-    public abstract DesiredActivity getDesiredActivity();
-
-    /**
-     * Sets the size of the citizen entity
-     *
-     * @param width  Width
-     * @param height Height
-     */
-    public abstract void setCitizensize(@NotNull float width, @NotNull float height);
-
     /**
      * Sets whether this entity is a child
      *
@@ -619,13 +614,6 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
      * @return the instance of the handler.
      */
     public abstract ICitizenChatHandler getCitizenChatHandler();
-
-    /**
-     * The Handler for all status related methods.
-     *
-     * @return the instance of the handler.
-     */
-    public abstract ICitizenStatusHandler getCitizenStatusHandler();
 
     /**
      * The Handler for all item related methods.
@@ -675,27 +663,6 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
 
     public abstract void setCitizenDiseaseHandler(ICitizenDiseaseHandler citizenDiseaseHandler);
 
-    /**
-     * Check if the citizen can eat now by considering the state and the job tasks.
-     *
-     * @return true if so.
-     */
-    public abstract boolean isOkayToEat();
-
-    /**
-     * Check if the citizen can be fed.
-     *
-     * @return true if so.
-     */
-    public abstract boolean shouldBeFed();
-
-    /**
-     * Check if the citizen is just idling at their job and can eat now.
-     *
-     * @return true if so.
-     */
-    public abstract boolean isIdlingAtJob();
-
     public abstract float getRotationYaw();
 
     public abstract float getRotationPitch();
@@ -713,13 +680,6 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
     public abstract void setCitizenExperienceHandler(ICitizenExperienceHandler citizenExperienceHandler);
 
     /**
-     * Get if the citizen is fleeing from an attacker.
-     *
-     * @return true if so.
-     */
-    public abstract boolean isCurrentlyFleeing();
-
-    /**
      * Calls a guard for help against an attacker.
      *
      * @param attacker       the attacking entity
@@ -727,27 +687,10 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
      */
     public abstract void callForHelp(final Entity attacker, final int guardHelpRange);
 
-    /**
-     * Sets the fleeing state
-     *
-     * @param fleeing true if fleeing.
-     */
-    public abstract void setFleeingState(final boolean fleeing);
-
-    /**
-     * Setter for the citizen pose.
-     *
-     * @param pose the pose to set.
-     */
-    public void updatePose(final Pose pose)
-    {
-        setPose(pose);
-    }
-
     @Override
     public void detectEquipmentUpdates()
     {
-        if (this.isEquipmentDirty)
+        if (this.isEquipmentDirty && tickCount % 20 == randomVariance)
         {
             this.isEquipmentDirty = false;
             List<Pair<EquipmentSlot, ItemStack>> list = Lists.newArrayListWithCapacity(6);
@@ -770,20 +713,28 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
             final ItemStack previous = getItemBySlot(slot);
             if (!ItemStackUtils.compareItemStacksIgnoreStackSize(previous, newItem, false, true))
             {
-                if (!previous.isEmpty())
-                {
-                    this.getAttributes().removeAttributeModifiers(previous.getAttributeModifiers(slot));
-                }
-
-                if (!newItem.isEmpty())
-                {
-                    this.getAttributes().addTransientAttributeModifiers(newItem.getAttributeModifiers(slot));
-                }
-
                 markEquipmentDirty();
             }
         }
         super.setItemSlot(slot, newItem);
+    }
+
+    /**
+     * On armor removal.
+     * @param stack the removed armor.
+     */
+    public void onArmorRemove(final ItemStack stack, final EquipmentSlot equipmentSlot)
+    {
+        this.getAttributes().removeAttributeModifiers(stack.getAttributeModifiers(equipmentSlot));
+    }
+
+    /**
+     * On armor equip.
+     * @param stack the added armor.
+     */
+    public void onArmorAdd(final ItemStack stack, final EquipmentSlot equipmentSlot)
+    {
+        this.getAttributes().addTransientAttributeModifiers(stack.getAttributeModifiers(equipmentSlot));
     }
 
     /**
@@ -805,28 +756,36 @@ public abstract class AbstractEntityCitizen extends AbstractCivilianEntity imple
     }
 
     /**
-     * Do not allow bubble movement
-     *
-     * @param down
-     */
-    public void onInsideBubbleColumn(boolean down)
-    {
-
-    }
-
-    /**
      * Queue a sound at the citizen.
-     * @param soundEvent the sound event to play.
-     * @param length the length of the event.
+     *
+     * @param soundEvent  the sound event to play.
+     * @param length      the length of the event.
      * @param repetitions the number of times to play it.
      */
     public abstract void queueSound(@NotNull final SoundEvent soundEvent, final BlockPos pos, final int length, final int repetitions);
 
     /**
      * Queue a sound at the citizen.
-     * @param soundEvent the sound event to play.
-     * @param length the length of the event.
+     *
+     * @param soundEvent  the sound event to play.
+     * @param length      the length of the event.
      * @param repetitions the number of times to play it.
      */
     public abstract void queueSound(@NotNull final SoundEvent soundEvent, final BlockPos pos, final int length, final int repetitions, final float volume, final float pitch);
+
+    /**
+     * Get the entities state controller
+     *
+     * @return
+     */
+    public ITickRateStateMachine<IState> getEntityStateController()
+    {
+        return entityStateController;
+    }
+
+    @Override
+    public boolean isSleeping()
+    {
+        return getCitizenSleepHandler().isAsleep();
+    }
 }

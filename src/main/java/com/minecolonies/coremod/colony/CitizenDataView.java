@@ -2,6 +2,7 @@ package com.minecolonies.coremod.colony;
 
 import com.minecolonies.api.MinecoloniesAPIProxy;
 import com.minecolonies.api.colony.ICitizenDataView;
+import com.minecolonies.api.colony.IColony;
 import com.minecolonies.api.colony.IColonyManager;
 import com.minecolonies.api.colony.IColonyView;
 import com.minecolonies.api.colony.interactionhandling.ChatPriority;
@@ -19,13 +20,15 @@ import com.minecolonies.coremod.colony.interactionhandling.ServerCitizenInteract
 import com.minecolonies.coremod.entity.citizen.citizenhandlers.CitizenHappinessHandler;
 import com.minecolonies.coremod.entity.citizen.citizenhandlers.CitizenSkillHandler;
 import net.minecraft.client.Minecraft;
-import net.minecraft.nbt.CompoundTag;
-import net.minecraft.nbt.ListTag;
-import net.minecraft.network.FriendlyByteBuf;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.core.BlockPos;
+import net.minecraft.nbt.CompoundTag;
+import net.minecraft.network.FriendlyByteBuf;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.ResourceLocation;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -33,6 +36,7 @@ import java.util.*;
 import java.util.stream.Collectors;
 
 import static com.minecolonies.api.util.constant.NbtTagConstants.TAG_OFFHAND_HELD_ITEM_SLOT;
+import static com.minecolonies.api.util.constant.TranslationConstants.COM_MINECOLONIES_COREMOD_GUI_TOWNHALL_CITIZEN_UNEMPLOYED;
 
 /**
  * The CitizenDataView is the client-side representation of a CitizenData. Views contain the CitizenData's data that is relevant to a Client, in a more client-friendly form.
@@ -56,6 +60,7 @@ public class CitizenDataView implements ICitizenDataView
      * Attributes.
      */
     private final int     id;
+    private final IColonyView colonyView;
     protected     int     entityId;
     protected     String  name;
     protected     boolean female;
@@ -72,8 +77,6 @@ public class CitizenDataView implements ICitizenDataView
     /**
      * Placeholder skills.
      */
-    private double health;
-    private double maxHealth;
     private double saturation;
 
     /**
@@ -127,6 +130,11 @@ public class CitizenDataView implements ICitizenDataView
     private VisibleCitizenStatus statusIcon;
 
     /**
+     * The current location of interest.
+     */
+    @Nullable private BlockPos statusPosition;
+
+    /**
      * Parents of the citizen.
      */
     private Tuple<String, String> parents = new Tuple<>("", "");
@@ -147,15 +155,26 @@ public class CitizenDataView implements ICitizenDataView
     private Integer partner;
 
     /**
+     * The list of available quests the citizen can give out.
+     */
+    private final List<ResourceLocation> availableQuests = new ArrayList<>();
+
+    /**
+     * The list of participating quests the citizen can give out.
+     */
+    private final List<ResourceLocation> participatingQuests = new ArrayList<>();
+
+    /**
      * Set View id.
      *
      * @param id the id to set.
      */
-    protected CitizenDataView(final int id)
+    protected CitizenDataView(final int id, final IColonyView colonyView)
     {
         this.id = id;
         this.citizenSkillHandler = new CitizenSkillHandler();
         this.citizenHappinessHandler = new CitizenHappinessHandler();
+        this.colonyView = colonyView;
     }
 
     @Override
@@ -189,6 +208,12 @@ public class CitizenDataView implements ICitizenDataView
     }
 
     @Override
+    public IColony getColony()
+    {
+        return colonyView;
+    }
+
+    @Override
     public boolean isChild()
     {
         return isChild;
@@ -207,6 +232,12 @@ public class CitizenDataView implements ICitizenDataView
     public String getJob()
     {
         return job;
+    }
+
+    @Override
+    public MutableComponent getJobComponent()
+    {
+        return job.isEmpty() ? Component.translatable(COM_MINECOLONIES_COREMOD_GUI_TOWNHALL_CITIZEN_UNEMPLOYED) : Component.translatable(job);
     }
 
     @Override
@@ -256,13 +287,27 @@ public class CitizenDataView implements ICitizenDataView
     @Override
     public double getHealth()
     {
-        return health;
+        final Entity entity = colonyView.getWorld().getEntity(entityId);
+
+        if (entity instanceof LivingEntity)
+        {
+            return ((LivingEntity) entity).getHealth();
+        }
+
+        return CitizenData.MAX_HEALTH;
     }
 
     @Override
     public double getMaxHealth()
     {
-        return maxHealth;
+        final Entity entity = colonyView.getWorld().getEntity(entityId);
+
+        if (entity instanceof LivingEntity)
+        {
+            return ((LivingEntity) entity).getMaxHealth();
+        }
+
+        return CitizenData.MAX_HEALTH;
     }
 
     @Override
@@ -283,10 +328,6 @@ public class CitizenDataView implements ICitizenDataView
         homeBuilding = buf.readBoolean() ? buf.readBlockPos() : null;
         workBuilding = buf.readBoolean() ? buf.readBlockPos() : null;
 
-        // Attributes
-        health = buf.readFloat();
-        maxHealth = buf.readFloat();
-
         saturation = buf.readDouble();
         happiness = buf.readDouble();
 
@@ -298,8 +339,7 @@ public class CitizenDataView implements ICitizenDataView
 
         final CompoundTag compound = buf.readNbt();
         inventory = new InventoryCitizen(this.name, true);
-        final ListTag ListNBT = compound.getList("inventory", 10);
-        this.inventory.read(ListNBT);
+        this.inventory.read(compound);
         this.inventory.setHeldItem(InteractionHand.MAIN_HAND, compound.getInt(TAG_HELD_ITEM_SLOT));
         this.inventory.setHeldItem(InteractionHand.OFF_HAND, compound.getInt(TAG_OFFHAND_HELD_ITEM_SLOT));
 
@@ -321,6 +361,7 @@ public class CitizenDataView implements ICitizenDataView
 
         int statusindex = buf.readInt();
         statusIcon = statusindex >= 0 ? VisibleCitizenStatus.getForId(statusindex) : null;
+        statusPosition = buf.readBoolean() ? buf.readBlockPos() : null;
 
         if (buf.readBoolean())
         {
@@ -351,6 +392,21 @@ public class CitizenDataView implements ICitizenDataView
         final String parentA = buf.readUtf();
         final String parentB = buf.readUtf();
         parents = new Tuple<>(parentA, parentB);
+
+        availableQuests.clear();
+        participatingQuests.clear();
+
+        final int avSize = buf.readInt();
+        for (int i = 0; i < avSize; i++)
+        {
+            availableQuests.add(buf.readResourceLocation());
+        }
+
+        final int partSize = buf.readInt();
+        for (int i = 0; i < partSize; i++)
+        {
+            participatingQuests.add(buf.readResourceLocation());
+        }
     }
 
     @Override
@@ -386,10 +442,12 @@ public class CitizenDataView implements ICitizenDataView
             return false;
         }
 
-        final IInteractionResponseHandler interaction = sortedInteractions.get(0);
-        if (interaction != null)
+        for (final IInteractionResponseHandler interaction : sortedInteractions)
         {
-            return interaction.getPriority().getPriority() >= ChatPriority.IMPORTANT.getPriority();
+            if (interaction.getPriority().getPriority() >= ChatPriority.IMPORTANT.getPriority())
+            {
+                return true;
+            }
         }
 
         return false;
@@ -403,12 +461,13 @@ public class CitizenDataView implements ICitizenDataView
             return false;
         }
 
-        final IInteractionResponseHandler interaction = sortedInteractions.get(0);
-        if (interaction != null)
+        for (final IInteractionResponseHandler interaction : sortedInteractions)
         {
-            return interaction.getPriority().getPriority() >= ChatPriority.CHITCHAT.getPriority();
+            if (interaction.getPriority().getPriority() >= ChatPriority.CHITCHAT.getPriority())
+            {
+                return true;
+            }
         }
-
         return false;
     }
 
@@ -420,10 +479,12 @@ public class CitizenDataView implements ICitizenDataView
             return false;
         }
 
-        final IInteractionResponseHandler interaction = sortedInteractions.get(0);
-        if (interaction != null)
+        for (final IInteractionResponseHandler interaction : sortedInteractions)
         {
-            return interaction.isPrimary();
+            if (interaction.isPrimary())
+            {
+                return true;
+            }
         }
 
         return false;
@@ -469,6 +530,12 @@ public class CitizenDataView implements ICitizenDataView
     public VisibleCitizenStatus getVisibleStatus()
     {
         return statusIcon;
+    }
+
+    @Override
+    public @Nullable BlockPos getStatusPosition()
+    {
+        return statusPosition;
     }
 
     @Nullable

@@ -1,6 +1,5 @@
 package com.minecolonies.coremod.colony.buildings;
 
-import com.google.common.collect.ImmutableSet;
 import com.ldtteam.structurize.blockentities.interfaces.IBlueprintDataProviderBE;
 import com.ldtteam.structurize.blueprints.v1.Blueprint;
 import com.ldtteam.structurize.storage.StructurePacks;
@@ -11,10 +10,12 @@ import com.minecolonies.api.colony.buildings.IBuilding;
 import com.minecolonies.api.colony.buildings.ISchematicProvider;
 import com.minecolonies.api.colony.buildings.modules.IAltersBuildingFootprint;
 import com.minecolonies.api.colony.buildings.registry.BuildingEntry;
-import com.minecolonies.api.colony.managers.interfaces.IRegisteredStructureManager;
 import com.minecolonies.api.compatibility.newstruct.BlueprintMapping;
 import com.minecolonies.api.tileentities.TileEntityColonyBuilding;
-import com.minecolonies.api.util.*;
+import com.minecolonies.api.util.BlockPosUtil;
+import com.minecolonies.api.util.FireworkUtils;
+import com.minecolonies.api.util.Log;
+import com.minecolonies.api.util.MessageUtils;
 import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.util.Tuple;
@@ -23,12 +24,9 @@ import net.minecraft.world.level.block.entity.BlockEntity;
 import net.minecraft.world.level.block.state.BlockState;
 import org.jetbrains.annotations.NotNull;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
 import java.util.Set;
-import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Future;
+import java.util.stream.Collectors;
 
 import static com.minecolonies.api.util.constant.Constants.DEFAULT_STYLE;
 import static com.minecolonies.api.util.constant.NbtTagConstants.*;
@@ -84,8 +82,8 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
     /**
      * Corners of the building.
      */
-    private BlockPos lowerCorner  = null;
-    private BlockPos higherCorner = null;
+    private BlockPos lowerCorner  = BlockPos.ZERO;
+    private BlockPos higherCorner = BlockPos.ZERO;
 
     /**
      * Cached rotation.
@@ -98,17 +96,19 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
     private BlockPos parentSchematic = BlockPos.ZERO;
 
     /**
-     * Child schematics within this
-     */
-    private Set<BlockPos>     childSchematics = ImmutableSet.of();
-
-    /**
      * Blueprint future for delayed info reading.
      */
     private Future<Blueprint> blueprintFuture;
+    private String            blueprintFuturePack = "";
+    private String            blueprintFutureName = "";
 
     public AbstractSchematicProvider(final BlockPos pos, final IColony colony)
     {
+        if (pos.equals(BlockPos.ZERO))
+        {
+            Log.getLogger().warn("Creating building at zero pos!:", new Exception());
+        }
+
         this.location = pos;
         this.colony = colony;
     }
@@ -175,7 +175,6 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
         compound.putBoolean(TAG_DECONSTRUCTED, isDeconstructed);
 
         BlockPosUtil.write(compound, TAG_PARENT_SCHEM, parentSchematic);
-        BlockPosUtil.writePosListToNBT(compound, TAG_CHILD_SCHEM, new ArrayList<>(childSchematics));
         return compound;
     }
 
@@ -188,7 +187,7 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
 
         isBuildingMirrored = compound.getBoolean(TAG_MIRROR);
 
-        if (compound.getAllKeys().contains(TAG_CORNER1) && compound.getAllKeys().contains(TAG_CORNER2))
+        if (compound.contains(TAG_CORNER1) && compound.contains(TAG_CORNER2))
         {
             setCorners(BlockPosUtil.read(compound, TAG_CORNER1), BlockPosUtil.read(compound, TAG_CORNER2));
         }
@@ -213,7 +212,6 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
         }
 
         parentSchematic = BlockPosUtil.read(compound, TAG_PARENT_SCHEM);
-        childSchematics = ImmutableSet.copyOf(BlockPosUtil.readPosListFromNBT(compound, TAG_CHILD_SCHEM));
     }
 
     private void deserializerStructureInformationFrom(final CompoundTag compound)
@@ -223,7 +221,7 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
         if (compound.contains(TAG_STYLE) && !compound.getString(TAG_STYLE).isEmpty())
         {
             packName = BlueprintMapping.getStyleMapping(compound.getString(TAG_STYLE));
-            path = BlueprintMapping.getPathMapping(compound.getString(TAG_STYLE), this.getSchematicName()) + buildingLevel  + ".blueprint";
+            path = BlueprintMapping.getPathMapping(compound.getString(TAG_STYLE), this.getSchematicName()) + buildingLevel + ".blueprint";
         }
         else
         {
@@ -263,19 +261,21 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
     {
         this.lowerCorner = new BlockPos(Math.min(pos1.getX(), pos2.getX()), Math.min(pos1.getY(), pos2.getY()), Math.min(pos1.getZ(), pos2.getZ()));
         this.higherCorner = new BlockPos(Math.max(pos1.getX(), pos2.getX()), Math.max(pos1.getY(), pos2.getY()), Math.max(pos1.getZ(), pos2.getZ()));
-        if (this.getTileEntity() != null && !lowerCorner.equals(higherCorner))
-        {
-            this.getTileEntity().setSchematicCorners(lowerCorner.subtract(getPosition()), higherCorner.subtract(getPosition()));
-        }
     }
 
     @Override
     public Tuple<BlockPos, BlockPos> getCorners()
     {
-        if (lowerCorner == null || higherCorner == null)
+        if (lowerCorner.equals(BlockPos.ZERO) || higherCorner.equals(BlockPos.ZERO))
         {
             this.calculateCorners();
+
+            if (lowerCorner.equals(BlockPos.ZERO) || higherCorner.equals(BlockPos.ZERO))
+            {
+                return new Tuple<>(getPosition(), getPosition());
+            }
         }
+
         return new Tuple<>(lowerCorner, higherCorner);
     }
 
@@ -289,16 +289,7 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
     @Override
     public BlockPos getParent()
     {
-        final IBuilding building = colony.getBuildingManager().getBuilding(parentSchematic);
-        if (building != null)
-        {
-            if (!building.getChildren().contains(getID()))
-            {
-                building.addChild(getID());
-            }
-        }
-
-        return parentSchematic;
+        return isParentValid(parentSchematic) ? parentSchematic : BlockPos.ZERO;
     }
 
     @Override
@@ -310,53 +301,25 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
     @Override
     public void setParent(final BlockPos pos)
     {
-        if (!pos.equals(getID()))
+        if (isParentValid(pos))
         {
             parentSchematic = pos;
         }
     }
 
+    private boolean isParentValid(BlockPos position)
+    {
+        final IBuilding building = colony.getBuildingManager().getBuilding(position);
+        return building != null && !building.getID().equals(getID()) && !building.hasParent();
+    }
+
     @Override
     public Set<BlockPos> getChildren()
     {
-        // Validate childs existance
-        final IRegisteredStructureManager manager = colony.getBuildingManager();
-        List<BlockPos> toRemove = null;
-
-        for (final BlockPos pos : childSchematics)
-        {
-            if (manager.getBuilding(pos) == null)
-            {
-                if (toRemove == null)
-                {
-                    toRemove = new ArrayList<>();
-                }
-                toRemove.add(pos);
-            }
-        }
-
-        if (toRemove != null)
-        {
-            final Set<BlockPos> oldPositions = new HashSet<>(this.childSchematics);
-            oldPositions.removeAll(toRemove);
-            this.childSchematics = ImmutableSet.copyOf(oldPositions);
-        }
-
-        return childSchematics;
-    }
-
-    @Override
-    public void addChild(final BlockPos pos)
-    {
-        childSchematics = ImmutableSet.<BlockPos>builder().addAll(childSchematics).add(pos).build();
-    }
-
-    @Override
-    public void removeChild(final BlockPos pos)
-    {
-        final Set<BlockPos> oldPositions = new HashSet<>(childSchematics);
-        oldPositions.remove(pos);
-        childSchematics = ImmutableSet.copyOf(oldPositions);
+        return colony.getBuildingManager().getBuildings().values().stream()
+          .filter(f -> f.getParent().equals(getID()))
+          .map(ISchematicProvider::getID)
+          .collect(Collectors.toUnmodifiableSet());
     }
 
     @Override
@@ -401,12 +364,14 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
             }
             else
             {
-                Log.getLogger().error(String.format("Failed to get rotation for %s: ", this.path));
+                Log.getLogger()
+                  .error(String.format("Failed to get rotation of building %s at pos: %s with path: %s", getBuildingDisplayName(), getPosition().toShortString(), this.path));
             }
         }
         catch (Exception e)
         {
-            Log.getLogger().error(String.format("Failed to get rotation for %s: ", this.path), e);
+            Log.getLogger()
+              .error(String.format("Failed to get rotation of building %s at pos: %s with path: %s", getBuildingDisplayName(), getPosition().toShortString(), this.path), e);
             return 0;
         }
 
@@ -470,9 +435,10 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
                     }
                 }
             }
-            catch (InterruptedException | ExecutionException e)
+            catch (Exception e)
             {
-                e.printStackTrace();
+                Log.getLogger().info("Failed to load blueprintfuture for: pack:" + blueprintFuturePack + " name:" + blueprintFutureName, e);
+                blueprintFuture = null;
             }
         }
     }
@@ -497,14 +463,17 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
         }
 
         blueprintFuture = StructurePacks.getBlueprintFuture(packName, structureName);
+        blueprintFuturePack = packName;
+        blueprintFutureName = structureName;
     }
 
     @Override
     public String getStructurePack()
     {
-        if (parentSchematic != BlockPos.ZERO)
+        final BlockPos parent = getParent();
+        if (parent != BlockPos.ZERO)
         {
-            final IBuilding building = colony.getBuildingManager().getBuilding(parentSchematic);
+            final IBuilding building = colony.getBuildingManager().getBuilding(parent);
             if (building != null)
             {
                 return building.getStructurePack();
@@ -597,15 +566,16 @@ public abstract class AbstractSchematicProvider implements ISchematicProvider, I
 
             }
 
-            if (level > 0 && level >= getBuildingLevel() && level <= getMaxBuildingLevel())
+            if (level > 0 && (level > getBuildingLevel() || isDeconstructed) && level <= getMaxBuildingLevel())
             {
                 if (level > getBuildingLevel())
                 {
                     FireworkUtils.spawnFireworksAtAABBCorners(getCorners(), colony.getWorld(), level);
                 }
-                
+
                 setBuildingLevel(level);
                 onUpgradeComplete(level);
+                isDeconstructed = false;
             }
         }
     }

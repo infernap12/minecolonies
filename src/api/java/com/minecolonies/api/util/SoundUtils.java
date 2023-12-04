@@ -2,6 +2,8 @@ package com.minecolonies.api.util;
 
 import com.minecolonies.api.colony.ICitizenData;
 import com.minecolonies.api.colony.ICivilianData;
+import com.minecolonies.api.colony.IVisitorData;
+import com.minecolonies.api.colony.jobs.IJob;
 import com.minecolonies.api.sounds.EventType;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.protocol.game.ClientboundSoundPacket;
@@ -10,13 +12,13 @@ import net.minecraft.sounds.SoundEvent;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.Pose;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.level.Level;
 import net.minecraftforge.event.level.NoteBlockEvent.Note;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
-import java.util.Map;
 import java.util.Random;
 
 import static com.minecolonies.api.sounds.ModSoundEvents.CITIZEN_SOUND_EVENTS;
@@ -34,7 +36,7 @@ public final class SoundUtils
     /**
      * Standard pitch value.
      */
-    public static final double PITCH = 0.9D;
+    public static final double PITCH = 1.0D;
 
     /**
      * Random object.
@@ -110,6 +112,12 @@ public final class SoundUtils
             return;
         }
 
+        if (citizen.isAsleep())
+        {
+            playSoundAtCitizenWith(worldIn, pos, EventType.OFF_TO_BED, citizen);
+            return;
+        }
+
         final double v = rand.nextDouble();
         if (v <= 0.1)
         {
@@ -124,7 +132,7 @@ public final class SoundUtils
         }
         else if (v <= 0.2)
         {
-            if (citizen.getCitizenHappinessHandler().getHappiness(citizen.getColony()) < 5)
+            if (citizen.getCitizenHappinessHandler().getHappiness(citizen.getColony(), citizen) < 5)
             {
                 playSoundAtCitizenWith(worldIn, pos, EventType.UNHAPPY, citizen);
             }
@@ -149,9 +157,13 @@ public final class SoundUtils
         {
             playSoundAtCitizenWith(worldIn, pos, EventType.BAD_WEATHER, citizen);
         }
-        else if (v <= 1.0)
+        else if (v <= 0.8 && citizen.isIdleAtJob())
         {
-            playSoundAtCitizenWith(worldIn, pos, EventType.NOISE, citizen);
+            playSoundAtCitizenWith(worldIn, pos, EventType.MISSING_EQUIPMENT, citizen);
+        }
+        else
+        {
+            playSoundAtCitizenWith(worldIn, pos, EventType.NOISE, citizen, EventType.NOISE.getChance(), VOLUME/2);
         }
     }
 
@@ -190,6 +202,10 @@ public final class SoundUtils
               (float) 1.0,
               player.level.random.nextLong()));
         }
+        else
+        {
+            player.playNotifySound(SoundEvents.NOTE_BLOCK_BELL, SoundSource.NEUTRAL, 1.0f, 1.0f);
+        }
     }
 
     /**
@@ -210,6 +226,10 @@ public final class SoundUtils
               (float) 0.3,
               player.level.random.nextLong()));
         }
+        else
+        {
+            player.playNotifySound(SoundEvents.NOTE_BLOCK_DIDGERIDOO, SoundSource.NEUTRAL, 1.0f, 0.3f);
+        }
     }
 
     /**
@@ -224,32 +244,58 @@ public final class SoundUtils
       @NotNull final Level worldIn,
       @NotNull final BlockPos position,
       @Nullable final EventType type,
-      @Nullable final ICitizenData citizenData)
+      @Nullable final ICivilianData citizenData)
+    {
+        playSoundAtCitizenWith(worldIn, position, type, citizenData, type.getChance());
+    }
+
+    /**
+     * Plays a sound with a certain chance at a certain position.
+     *
+     * @param worldIn     the world to play the sound in.
+     * @param position    position to play the sound at.
+     * @param type        sound to play.
+     * @param citizenData the citizen.
+     */
+    public static void playSoundAtCitizenWith(
+      @NotNull final Level worldIn,
+      @NotNull final BlockPos position,
+      @Nullable final EventType type,
+      @Nullable final ICivilianData citizenData, final double chance, final double volume)
     {
         if (citizenData == null)
         {
             return;
         }
 
-        final Map<EventType, Tuple<SoundEvent, SoundEvent>> map;
-        if (citizenData.getJob() != null)
+        // Always call job specific, we put all sounds into job specific. So, call here visitor, job, or if no job general
+        final String jobDesc;
+        if (citizenData instanceof IVisitorData)
         {
-            map = CITIZEN_SOUND_EVENTS.get(citizenData.getJob().getJobRegistryEntry().getKey().getPath());
+            jobDesc = "visitor";
+        }
+        else if (citizenData.isChild())
+        {
+            jobDesc = "child";
+        }
+        else if (citizenData instanceof ICitizenData)
+        {
+            final IJob<?> job = ((ICitizenData) citizenData).getJob();
+            jobDesc = job == null ? "unemployed" : job.getJobRegistryEntry().getKey().getPath();
         }
         else
         {
-            map = CITIZEN_SOUND_EVENTS.get(citizenData.isChild() ? "child" : "citizen");
+            jobDesc = "unemployed";
         }
 
-        final SoundEvent event = citizenData.isFemale() ? map.get(type).getB() : map.get(type).getA();
-
-        if (type.getChance() > rand.nextDouble() * ONE_HUNDRED)
+        final SoundEvent event = citizenData.isFemale() ? CITIZEN_SOUND_EVENTS.get(jobDesc).get(type).get(citizenData.getSoundProfile()).getB() : CITIZEN_SOUND_EVENTS.get(jobDesc).get(type).get(citizenData.getSoundProfile()).getA();
+        if (chance > rand.nextDouble() * ONE_HUNDRED)
         {
             worldIn.playSound(null,
               position,
               event,
               SoundSource.NEUTRAL,
-              (float) VOLUME,
+              (float) volume,
               (float) PITCH);
         }
     }
@@ -257,34 +303,18 @@ public final class SoundUtils
     /**
      * Plays a sound with a certain chance at a certain position.
      *
-     * @param worldIn      the world to play the sound in.
-     * @param position     position to play the sound at.
-     * @param type         sound to play.
-     * @param civilianData the citizen.
+     * @param worldIn     the world to play the sound in.
+     * @param position    position to play the sound at.
+     * @param type        sound to play.
+     * @param citizenData the citizen.
      */
-    public static void playSoundAtCivilian(
+    public static void playSoundAtCitizenWith(
       @NotNull final Level worldIn,
       @NotNull final BlockPos position,
       @Nullable final EventType type,
-      @Nullable final ICivilianData civilianData)
+      @Nullable final ICivilianData citizenData, final double chance)
     {
-        if (civilianData == null)
-        {
-            return;
-        }
-
-        final Map<EventType, Tuple<SoundEvent, SoundEvent>> map = CITIZEN_SOUND_EVENTS.get(civilianData.isChild() ? "child" : "citizen");
-        final SoundEvent event = civilianData.isFemale() ? map.get(type).getB() : map.get(type).getA();
-
-        if (type.getChance() > rand.nextDouble() * ONE_HUNDRED)
-        {
-            worldIn.playSound(null,
-              position,
-              event,
-              SoundSource.NEUTRAL,
-              (float) VOLUME,
-              (float) PITCH);
-        }
+        playSoundAtCitizenWith(worldIn, position, type, citizenData, chance, VOLUME);
     }
 
     /**

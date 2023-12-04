@@ -40,7 +40,6 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ArmorItem;
 import net.minecraft.world.item.ArrowItem;
 import net.minecraft.world.item.ItemStack;
-
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
@@ -65,13 +64,13 @@ public abstract class AbstractBuildingGuards extends AbstractBuilding implements
      */
     public static final ISettingKey<BoolSetting>       RETREAT      =
       new SettingKey<>(BoolSetting.class, new ResourceLocation(com.minecolonies.api.util.constant.Constants.MOD_ID, "retreat"));
-    public static final ISettingKey<BoolSetting>       HIRE_TRAINEE =
+    public static final ISettingKey<BoolSetting>            HIRE_TRAINEE =
       new SettingKey<>(BoolSetting.class, new ResourceLocation(com.minecolonies.api.util.constant.Constants.MOD_ID, "hiretrainee"));
-    public static final ISettingKey<PatrolModeSetting> PATROL_MODE  =
-      new SettingKey<>(PatrolModeSetting.class, new ResourceLocation(com.minecolonies.api.util.constant.Constants.MOD_ID, "patrolmode"));
-    public static final ISettingKey<FollowModeSetting> FOLLOW_MODE  =
-      new SettingKey<>(FollowModeSetting.class, new ResourceLocation(com.minecolonies.api.util.constant.Constants.MOD_ID, "followmode"));
-    public static final ISettingKey<GuardTaskSetting>  GUARD_TASK   =
+    public static final ISettingKey<GuardPatrolModeSetting> PATROL_MODE =
+      new SettingKey<>(GuardPatrolModeSetting.class, new ResourceLocation(com.minecolonies.api.util.constant.Constants.MOD_ID, "patrolmode"));
+    public static final ISettingKey<GuardFollowModeSetting> FOLLOW_MODE =
+      new SettingKey<>(GuardFollowModeSetting.class, new ResourceLocation(com.minecolonies.api.util.constant.Constants.MOD_ID, "followmode"));
+    public static final ISettingKey<GuardTaskSetting>       GUARD_TASK  =
       new SettingKey<>(GuardTaskSetting.class, new ResourceLocation(com.minecolonies.api.util.constant.Constants.MOD_ID, "guardtask"));
 
 
@@ -385,9 +384,9 @@ public abstract class AbstractBuildingGuards extends AbstractBuilding implements
         {
             if (curguard.getEntity().isPresent())
             {
-                if (curguard.getEntity().get().getCitizenJobHandler().getColonyJob() instanceof AbstractJobGuard)
+                if (curguard.getEntity().get().getCitizenJobHandler().getColonyJob() instanceof AbstractJobGuard guardEntity)
                 {
-                    ((AbstractEntityAIGuard<?, ?>) curguard.getEntity().get().getCitizenJobHandler().getColonyJob().getWorkerAI()).setNextPatrolTarget(lastPatrolPoint);
+                    ((AbstractEntityAIGuard<?, ?>) guardEntity.getWorkerAI()).setNextPatrolTarget(lastPatrolPoint);
                 }
             }
         }
@@ -416,7 +415,7 @@ public abstract class AbstractBuildingGuards extends AbstractBuilding implements
             return lastPatrolPoint;
         }
 
-        if (!getSetting(PATROL_MODE).getValue().equals(PatrolModeSetting.MANUAL) || patrolTargets == null || patrolTargets.isEmpty())
+        if (!getSetting(PATROL_MODE).getValue().equals(GuardPatrolModeSetting.MANUAL) || patrolTargets == null || patrolTargets.isEmpty())
         {
             BlockPos pos = null;
             if (this.pathResult != null)
@@ -475,11 +474,7 @@ public abstract class AbstractBuildingGuards extends AbstractBuilding implements
         return PATROL_BASE_DIST + this.getBuildingLevel() * PATROL_DISTANCE;
     }
 
-    /**
-     * Sets a one time consumed temporary next position to patrol towards
-     *
-     * @param pos Position to set
-     */
+    @Override
     public void setTempNextPatrolPoint(final BlockPos pos)
     {
         tempNextPatrolPoint = pos;
@@ -521,13 +516,13 @@ public abstract class AbstractBuildingGuards extends AbstractBuilding implements
     @Override
     public boolean shallPatrolManually()
     {
-        return getSetting(PATROL_MODE).getValue().equals(PatrolModeSetting.MANUAL);
+        return getSetting(PATROL_MODE).getValue().equals(GuardPatrolModeSetting.MANUAL);
     }
 
     @Override
     public boolean isTightGrouping()
     {
-        return getSetting(FOLLOW_MODE).getValue().equals(FollowModeSetting.TIGHT);
+        return getSetting(FOLLOW_MODE).getValue().equals(GuardFollowModeSetting.TIGHT);
     }
 
     @Override

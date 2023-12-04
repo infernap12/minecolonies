@@ -1,5 +1,6 @@
 package com.minecolonies.api.util;
 
+import com.minecolonies.api.colony.buildings.modules.IAltersBuildingFootprint;
 import com.minecolonies.api.entity.citizen.AbstractEntityCitizen;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
@@ -93,7 +94,7 @@ public final class BlockPosUtil
     }
 
     /**
-     * Writes a chunk coordinate to a CompoundNBT, but only if not null.
+     * Writes a chunk coordinate to a CompoundTag, but only if not null.
      *
      * @param compound Compound to write to.
      * @param name     Name of the tag.
@@ -182,7 +183,7 @@ public final class BlockPosUtil
     }
 
     /**
-     * Reads chunk coordinates from a CompoundNBT, but returns null if zero or absent.
+     * Reads chunk coordinates from a CompoundTag, but returns null if zero or absent.
      *
      * @param compound Compound to read data from.
      * @param name     Tag name to read data from.
@@ -701,6 +702,20 @@ public final class BlockPosUtil
         return Direction.getNearest(vector.getX(), 0, vector.getZ());
     }
 
+
+    /**
+     * Get facing from x,y
+     * @param pos1X start-x
+     * @param pos1Z start-z
+     * @param pos2X end-x
+     * @param pos2Z end-z
+     * @return the direction.
+     */
+    public static Direction getXZFacing(final int pos1X, final int pos1Z, final int pos2X, final int pos2Z)
+    {
+        return Direction.getNearest(pos1X - pos2X, 0, pos1Z - pos2Z);
+    }
+
     /**
      * Calculates the direction a position is from the building.
      *
@@ -795,14 +810,14 @@ public final class BlockPosUtil
      * Returns the first air position near the given start. Advances vertically first then horizontally
      *
      * @param start     start position
-     * @param vRange    vertical search range
-     * @param hRange    horizontal search range
+     * @param horizontalRange    horizontal search range
+     * @param verticalRange    vertical search range
      * @param predicate check predicate for the right block
      * @return position or null
      */
-    public static BlockPos findAround(final Level world, final BlockPos start, final int vRange, final int hRange, final BiPredicate<BlockGetter, BlockPos> predicate)
+    public static BlockPos findAround(final Level world, final BlockPos start, final int verticalRange, final int horizontalRange, final BiPredicate<BlockGetter, BlockPos> predicate)
     {
-        if (vRange < 1 && hRange < 1)
+        if (horizontalRange < 1 && verticalRange < 1)
         {
             return null;
         }
@@ -812,13 +827,21 @@ public final class BlockPosUtil
             return start;
         }
 
+        for (Direction direction : Direction.Plane.HORIZONTAL)
+        {
+            if (predicate.test(world, start.relative(direction)))
+            {
+                return start.relative(direction);
+            }
+        }
+
         BlockPos temp;
         int y = 0;
         int y_offset = 1;
 
-        for (int i = 0; i < hRange + 2; i++)
+        for (int i = 0; i < verticalRange + 2; i++)
         {
-            for (int steps = 1; steps <= vRange; steps++)
+            for (int steps = 1; steps <= horizontalRange; steps++)
             {
                 // Start topleft of middle point
                 temp = start.offset(-steps, y, -steps);
@@ -931,5 +954,54 @@ public final class BlockPosUtil
         }
 
         return new BlockPos(cornerX, cornerY, cornerZ);
+    }
+
+    /**
+     * Check if a location is within an area.
+     * @param cornerA the first corner.
+     * @param cornerB the second corner.
+     * @param location the location to check for.
+     * @return true if so.
+     */
+    public static boolean isInArea(final BlockPos cornerA, final BlockPos cornerB, final BlockPos location)
+    {
+        int x1, x2, z1, z2, y1, y2;
+
+        if (cornerA.getX() <= cornerB.getX())
+        {
+            x1 = cornerA.getX();
+            x2 = cornerB.getX();
+        }
+        else
+        {
+            x2 = cornerA.getX();
+            x1 = cornerB.getX();
+        }
+
+        if (cornerA.getZ() <= cornerB.getZ())
+        {
+            z1 = cornerA.getZ();
+            z2 = cornerB.getZ();
+        }
+        else
+        {
+            z2 = cornerA.getZ();
+            z1 = cornerB.getZ();
+        }
+
+        if (cornerA.getY() <= cornerB.getY())
+        {
+            y1 = cornerA.getY();
+            y2 = cornerB.getY();
+        }
+        else
+        {
+            y2 = cornerA.getY();
+            y1 = cornerB.getY();
+        }
+
+        return location.getX() >= x1 - 1 && location.getX() <= x2 + 1
+                 && location.getY() >= y1 - 1 && location.getY() <= y2 + 1
+                 && location.getZ() >= z1 - 1 && location.getZ() <= z2 + 1;
     }
 }

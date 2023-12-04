@@ -3,29 +3,29 @@ package com.minecolonies.coremod.colony.jobs;
 import com.minecolonies.api.client.render.modeltype.ModModelTypes;
 import com.minecolonies.api.colony.ICitizenData;
 import com.minecolonies.api.colony.IColony;
+import com.minecolonies.api.colony.buildings.IBuilding;
+import com.minecolonies.api.colony.buildings.modules.IAssignsJob;
 import com.minecolonies.api.colony.jobs.IJob;
 import com.minecolonies.api.colony.jobs.registry.IJobRegistry;
 import com.minecolonies.api.colony.jobs.registry.JobEntry;
 import com.minecolonies.api.colony.requestsystem.StandardFactoryController;
 import com.minecolonies.api.colony.requestsystem.token.IToken;
+import com.minecolonies.api.entity.ai.ITickingStateAI;
 import com.minecolonies.api.entity.ai.statemachine.states.AIWorkerState;
 import com.minecolonies.api.entity.citizen.AbstractEntityCitizen;
+import com.minecolonies.api.util.BlockPosUtil;
 import com.minecolonies.api.util.Log;
 import com.minecolonies.api.util.NBTUtils;
 import com.minecolonies.coremod.entity.ai.basic.AbstractAISkeleton;
-import net.minecraft.nbt.Tag;
-import net.minecraft.resources.ResourceLocation;
-import net.minecraft.world.entity.ai.goal.GoalSelector;
-import net.minecraft.world.item.ItemStack;
+import net.minecraft.core.BlockPos;
 import net.minecraft.nbt.CompoundTag;
+import net.minecraft.nbt.Tag;
 import net.minecraft.network.FriendlyByteBuf;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.world.damagesource.DamageSource;
-
-import net.minecraftforge.registries.ForgeRegistries;
+import net.minecraft.world.item.ItemStack;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
-import java.lang.ref.WeakReference;
 import java.util.HashSet;
 import java.util.Set;
 import java.util.stream.Collectors;
@@ -40,10 +40,11 @@ import static com.minecolonies.api.util.constant.Suppression.CLASSES_SHOULD_NOT_
  * apply because We are only mapping classes and that is reasonable
  */
 @SuppressWarnings(CLASSES_SHOULD_NOT_ACCESS_STATIC_MEMBERS_OF_THEIR_OWN_SUBCLASSES_DURING_INITIALIZATION)
-public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends AbstractJob<AI, J>> implements IJob<AI>
+public abstract class AbstractJob<AI extends AbstractAISkeleton<J> & ITickingStateAI, J extends AbstractJob<AI, J>> implements IJob<AI>
 {
     private static final String TAG_ASYNC_REQUESTS = "asyncRequests";
     private static final String TAG_ACTIONS_DONE   = "actionsDone";
+    private static final String TAG_WORK_POS   = "workPos";
 
     /**
      * Job associated to the abstract job.
@@ -54,11 +55,6 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
      * A counter to dump the inventory after x actions.
      */
     private int actionsDone = 0;
-
-    /**
-     * The priority assigned with every main AI job.
-     */
-    private static final int TASK_PRIORITY = 4;
 
     /**
      * Citizen connected with the job.
@@ -81,9 +77,19 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
     private boolean searchedForFoodToday;
 
     /**
-     * The workerAI for this Job
+     * Position of the work building
      */
-    private WeakReference<AI> workerAI = new WeakReference<>(null);
+    protected BlockPos workBuildingPos = null;
+
+    /**
+     * The work building
+     */
+    protected IBuilding workBuilding = null;
+
+    /**
+     * The work module we're assigned to
+     */
+    protected IAssignsJob workModule =  null;
 
     /**
      * Initialize citizen data.
@@ -120,6 +126,51 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
     }
 
     @Override
+    public BlockPos getBuildingPos()
+    {
+        return workBuildingPos;
+    }
+
+    @Override
+    public IBuilding getWorkBuilding()
+    {
+        return workBuilding;
+    }
+
+    @Override
+    public IAssignsJob getWorkModule()
+    {
+        return workModule;
+    }
+
+    @Override
+    public boolean assignTo(final IAssignsJob module)
+    {
+        if (module == null || !module.getJobEntry().equals(getJobRegistryEntry()))
+        {
+            return false;
+        }
+
+        if (workBuilding != null && workBuilding != module.getBuilding())
+        {
+            for(final IAssignsJob oldJobModule : workBuilding.getModules(IAssignsJob.class))
+            {
+                if (oldJobModule.hasAssignedCitizen(citizen))
+                {
+                    oldJobModule.removeCitizen(citizen);
+                }
+            }
+        }
+
+        workBuilding = module.getBuilding();
+        workBuildingPos = workBuilding.getID();
+        workModule = module;
+
+        citizen.setJob(this);
+        return true;
+    }
+
+    @Override
     final public JobEntry getJobRegistryEntry()
     {
         return this.entry;
@@ -138,6 +189,11 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
             .collect(NBTUtils.toListNBT()));
         compound.putInt(TAG_ACTIONS_DONE, actionsDone);
 
+        if (workBuildingPos != null)
+        {
+            BlockPosUtil.write(compound, TAG_WORK_POS, workBuildingPos);
+        }
+
         return compound;
     }
 
@@ -145,16 +201,21 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
     public void deserializeNBT(final CompoundTag compound)
     {
         this.asyncRequests.clear();
-        if (compound.getAllKeys().contains(TAG_ASYNC_REQUESTS))
+        if (compound.contains(TAG_ASYNC_REQUESTS))
         {
             this.asyncRequests.addAll(NBTUtils.streamCompound(compound.getList(TAG_ASYNC_REQUESTS, Tag.TAG_COMPOUND))
-                                        .map(StandardFactoryController.getInstance()::deserialize)
-                                        .map(o -> (IToken<?>) o)
-                                        .collect(Collectors.toSet()));
+              .map(StandardFactoryController.getInstance()::deserialize)
+              .map(o -> (IToken<?>) o)
+              .collect(Collectors.toSet()));
         }
-        if (compound.getAllKeys().contains(TAG_ACTIONS_DONE))
+        if (compound.contains(TAG_ACTIONS_DONE))
         {
             actionsDone = compound.getInt(TAG_ACTIONS_DONE);
+        }
+
+        if (compound.contains(TAG_WORK_POS))
+        {
+            workBuildingPos = BlockPosUtil.read(compound,TAG_WORK_POS);
         }
     }
 
@@ -188,7 +249,7 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
     }
 
     @Override
-    public void addWorkerAIToTaskList(@NotNull final GoalSelector tasks)
+    public void createAI()
     {
         final AI tempAI = generateAI();
 
@@ -208,9 +269,7 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
             return;
         }
 
-        tasks.availableGoals.stream().filter(goal -> goal.getGoal() instanceof AbstractAISkeleton).forEach(goal -> tasks.removeGoal(goal.getGoal()));
-        workerAI = new WeakReference<>(tempAI);
-        tasks.addGoal(TASK_PRIORITY, tempAI);
+        citizen.getEntity().get().getCitizenJobHandler().setWorkAI(tempAI);
     }
 
     @Override
@@ -277,7 +336,12 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
     @Override
     public boolean canAIBeInterrupted()
     {
-        return (workerAI.get() != null && workerAI.get().canBeInterrupted());
+        if (getWorkerAI() != null)
+        {
+            return getWorkerAI().canBeInterrupted();
+        }
+
+        return true;
     }
 
     @Override
@@ -305,24 +369,28 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
     }
 
     @Override
-    @Nullable
     public AI getWorkerAI()
     {
-        return workerAI.get();
+        if (citizen.getEntity().isPresent())
+        {
+            return (AI) citizen.getEntity().get().getCitizenJobHandler().getWorkAI();
+        }
+
+        return null;
     }
 
     @Override
     public boolean isIdling()
     {
-        return (workerAI.get() != null && workerAI.get().getState() == AIWorkerState.IDLE);
+        return (getWorkerAI() != null && getWorkerAI().getState() == AIWorkerState.IDLE);
     }
 
     @Override
     public void resetAI()
     {
-        if (workerAI.get() != null)
+        if (getWorkerAI() != null)
         {
-            workerAI.get().resetAI();
+            getWorkerAI().resetAI();
         }
     }
 
@@ -341,10 +409,26 @@ public abstract class AbstractJob<AI extends AbstractAISkeleton<J>, J extends Ab
     @Override
     public void onRemoval()
     {
-        if (workerAI.get() != null)
+        citizen.setJob(null);
+
+        if (getWorkerAI() != null)
         {
-            workerAI.get().onRemoval();
+            getWorkerAI().onRemoval();
         }
+
+        if (workBuilding != null)
+        {
+            for(final IAssignsJob oldJobModule : workBuilding.getModules(IAssignsJob.class))
+            {
+                if (oldJobModule.hasAssignedCitizen(citizen))
+                {
+                    oldJobModule.removeCitizen(citizen);
+                }
+            }
+        }
+
+        workBuilding = null;
+        workModule = null;
     }
 
     @Override

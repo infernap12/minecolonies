@@ -6,6 +6,7 @@ import com.ldtteam.structurize.placement.StructurePhasePlacementResult;
 import com.ldtteam.structurize.placement.StructurePlacer;
 import com.ldtteam.structurize.util.PlacementSettings;
 import com.minecolonies.api.colony.buildings.IBuilding;
+import com.minecolonies.api.colony.buildings.event.BuildingConstructionEvent;
 import com.minecolonies.api.colony.workorders.IWorkOrder;
 import com.minecolonies.api.colony.workorders.WorkOrderType;
 import com.minecolonies.api.crafting.ItemStorage;
@@ -31,12 +32,14 @@ import com.minecolonies.coremod.entity.ai.util.WorkerLoadOnlyStructureHandler;
 import net.minecraft.core.BlockPos;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.entity.BlockEntity;
+import net.minecraftforge.common.MinecraftForge;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import static com.ldtteam.structurize.placement.AbstractBlueprintIterator.NULL_POS;
 import static com.minecolonies.api.entity.ai.statemachine.states.AIWorkerState.*;
 import static com.minecolonies.api.util.constant.Constants.STACKSIZE;
+import static com.minecolonies.api.util.constant.StatisticsConstants.*;
 import static com.minecolonies.api.util.constant.TranslationConstants.COM_MINECOLONIES_COREMOD_ENTITY_BUILDER_BUILD_START;
 
 /**
@@ -86,6 +89,7 @@ public abstract class AbstractEntityAIStructureWithWorkOrder<J extends AbstractJ
     public void storeProgressPos(final BlockPos blockPos, final BuildingStructureHandler.Stage stage)
     {
         building.setProgressPos(blockPos, stage);
+        worker.getCitizenData().setStatusPosition(blockPos.equals(NULL_POS) ? null : structurePlacer.getB().getProgressPosInWorld(blockPos));
     }
 
     @Override
@@ -178,7 +182,7 @@ public abstract class AbstractEntityAIStructureWithWorkOrder<J extends AbstractJ
         final int tempRotation = workOrder.getRotation();
         final boolean removal = workOrder.getWorkOrderType() == WorkOrderType.REMOVE;
 
-        loadStructure(workOrder.getStructurePack(), workOrder.getStructurePath(), tempRotation, pos, workOrder.isMirrored(), removal);
+        loadStructure(workOrder, tempRotation, pos, workOrder.isMirrored(), removal);
         workOrder.setCleared(false);
         workOrder.setRequested(removal);
     }
@@ -375,15 +379,19 @@ public abstract class AbstractEntityAIStructureWithWorkOrder<J extends AbstractJ
             {
                 case BUILD:
                     job.getColony().getEventDescriptionManager().addEventDescription(new BuildingBuiltEvent(wo.getLocation(), workOrderName));
+                    worker.getCitizenColonyHandler().getColony().getStatisticsManager().increment(BUILD_BUILT);
                     break;
                 case UPGRADE:
                     job.getColony().getEventDescriptionManager().addEventDescription(new BuildingUpgradedEvent(wo.getLocation(), workOrderName, wo.getTargetLevel()));
+                    worker.getCitizenColonyHandler().getColony().getStatisticsManager().increment(BUILD_UPGRADED);
                     break;
                 case REPAIR:
                     job.getColony().getEventDescriptionManager().addEventDescription(new BuildingRepairedEvent(wo.getLocation(), workOrderName, wo.getCurrentLevel()));
+                    worker.getCitizenColonyHandler().getColony().getStatisticsManager().increment(BUILD_REPAIRED);
                     break;
                 case REMOVE:
                     job.getColony().getEventDescriptionManager().addEventDescription(new BuildingDeconstructedEvent(wo.getLocation(), workOrderName, wo.getCurrentLevel()));
+                    worker.getCitizenColonyHandler().getColony().getStatisticsManager().increment(BUILD_REMOVED);
                     break;
             }
 
@@ -392,6 +400,7 @@ public abstract class AbstractEntityAIStructureWithWorkOrder<J extends AbstractJ
             if (wo instanceof WorkOrderBuilding)
             {
                 final IBuilding building = job.getColony().getBuildingManager().getBuilding(wo.getLocation());
+                MinecraftForge.EVENT_BUS.post(new BuildingConstructionEvent(building, BuildingConstructionEvent.EventType.fromWorkOrderType(wo.getWorkOrderType())));
                 switch (wo.getWorkOrderType())
                 {
                     case BUILD:

@@ -7,13 +7,11 @@ import com.minecolonies.api.colony.buildings.IBuilding;
 import com.minecolonies.api.colony.interactionhandling.ChatPriority;
 import com.minecolonies.api.colony.jobs.IJob;
 import com.minecolonies.api.crafting.ItemStorage;
-import com.minecolonies.api.entity.ai.DesiredActivity;
+import com.minecolonies.api.entity.ai.IStateAI;
+import com.minecolonies.api.entity.ai.statemachine.states.CitizenAIState;
 import com.minecolonies.api.entity.ai.statemachine.states.IState;
-import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.TickRateStateMachine;
 import com.minecolonies.api.entity.ai.statemachine.tickratestatemachine.TickingTransition;
-import com.minecolonies.api.entity.citizen.VisibleCitizenStatus;
 import com.minecolonies.api.util.InventoryUtils;
-import com.minecolonies.api.util.Log;
 import com.minecolonies.api.util.SoundUtils;
 import com.minecolonies.api.util.WorldUtil;
 import com.minecolonies.api.util.constant.CitizenConstants;
@@ -26,31 +24,26 @@ import com.minecolonies.coremod.entity.SittingEntity;
 import com.minecolonies.coremod.entity.citizen.EntityCitizen;
 import com.minecolonies.coremod.network.messages.client.ItemParticleEffectMessage;
 import com.minecolonies.coremod.util.AdvancementUtils;
-import net.minecraft.world.entity.ai.goal.Goal;
-import net.minecraft.world.item.*;
-import net.minecraft.world.food.FoodProperties;
-import net.minecraft.world.InteractionHand;
-import net.minecraft.sounds.SoundEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.network.chat.Component;
-
-import java.util.EnumSet;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.food.FoodProperties;
+import net.minecraft.world.item.*;
 
 import static com.minecolonies.api.research.util.ResearchConstants.SATURATION;
 import static com.minecolonies.api.util.ItemStackUtils.CAN_EAT;
 import static com.minecolonies.api.util.ItemStackUtils.ISCOOKABLE;
-import static com.minecolonies.api.util.constant.CitizenConstants.LOW_SATURATION;
 import static com.minecolonies.api.util.constant.Constants.SECONDS_A_MINUTE;
 import static com.minecolonies.api.util.constant.Constants.TICKS_SECOND;
 import static com.minecolonies.api.util.constant.GuardConstants.BASIC_VOLUME;
 import static com.minecolonies.api.util.constant.TranslationConstants.*;
 import static com.minecolonies.coremod.entity.ai.minimal.EntityAIEatTask.EatingState.*;
-import static com.minecolonies.coremod.entity.citizen.citizenhandlers.CitizenDiseaseHandler.SEEK_DOCTOR_HEALTH;
 
 /**
  * The AI task for citizens to execute when they are supposed to eat.
  */
-public class EntityAIEatTask extends Goal
+public class EntityAIEatTask implements IStateAI
 {
     /**
      * Max waiting time for food in minutes..
@@ -75,14 +68,13 @@ public class EntityAIEatTask extends Goal
     /**
      * Limit to go to the restaurant.
      */
-    private static final double RESTAURANT_LIMIT = 2.5;
+    public static final double RESTAURANT_LIMIT = 2.5;
 
     /**
      * The different types of AIStates related to eating.
      */
     public enum EatingState implements IState
     {
-        IDLE,
         CHECK_FOR_FOOD,
         GO_TO_HUT,
         SEARCH_RESTAURANT,
@@ -90,7 +82,8 @@ public class EntityAIEatTask extends Goal
         WAIT_FOR_FOOD,
         GET_FOOD_YOURSELF,
         GO_TO_EAT_POS,
-        EAT
+        EAT,
+        DONE
     }
 
     /**
@@ -102,11 +95,6 @@ public class EntityAIEatTask extends Goal
      * The citizen assigned to this task.
      */
     private final EntityCitizen citizen;
-
-    /**
-     * AI statemachine
-     */
-    private final TickRateStateMachine<EatingState> stateMachine;
 
     /**
      * Ticks since we're waiting for something.
@@ -142,19 +130,18 @@ public class EntityAIEatTask extends Goal
     {
         super();
         this.citizen = citizen;
-        this.setFlags(EnumSet.of(Goal.Flag.MOVE));
 
-        stateMachine = new TickRateStateMachine<>(IDLE, e -> Log.getLogger().warn("Eating AI threw exception:", e));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(CitizenAIState.EATING,() -> true,() ->{ reset(); return CHECK_FOR_FOOD;},20));
 
-        stateMachine.addTransition(new TickingTransition<>(IDLE, this::shouldEat, () -> CHECK_FOR_FOOD, 60));
-        stateMachine.addTransition(new TickingTransition<>(CHECK_FOR_FOOD, () -> true, this::getFood, 20));
-        stateMachine.addTransition(new TickingTransition<>(GO_TO_HUT, () -> true, this::goToHut, 20));
-        stateMachine.addTransition(new TickingTransition<>(EAT, () -> true, this::eat, 20));
-        stateMachine.addTransition(new TickingTransition<>(SEARCH_RESTAURANT, () -> true, this::searchRestaurant, 20));
-        stateMachine.addTransition(new TickingTransition<>(GO_TO_RESTAURANT, () -> true, this::goToRestaurant, 20));
-        stateMachine.addTransition(new TickingTransition<>(WAIT_FOR_FOOD, () -> true, this::waitForFood, 20));
-        stateMachine.addTransition(new TickingTransition<>(GO_TO_EAT_POS, () -> true, this::goToEatingPlace, 20));
-        stateMachine.addTransition(new TickingTransition<>(GET_FOOD_YOURSELF, () -> true, this::getFoodYourself, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(DONE, () -> true,() -> CitizenAIState.IDLE, 1));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(CHECK_FOR_FOOD, () -> true, this::getFood, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(GO_TO_HUT, () -> true, this::goToHut, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(EAT, () -> true, this::eat, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(SEARCH_RESTAURANT, () -> true, this::searchRestaurant, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(GO_TO_RESTAURANT, () -> true, this::goToRestaurant, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(WAIT_FOR_FOOD, () -> true, this::waitForFood, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(GO_TO_EAT_POS, () -> true, this::goToEatingPlace, 20));
+        citizen.getCitizenAI().addTransition(new TickingTransition<>(GET_FOOD_YOURSELF, () -> true, this::getFoodYourself, 20));
     }
 
     /**
@@ -170,64 +157,6 @@ public class EntityAIEatTask extends Goal
         }
 
         return GO_TO_HUT;
-    }
-
-    /**
-     * Whether we should eat sth
-     *
-     * @return true if so
-     */
-    public boolean shouldEat()
-    {
-        if (citizen.getDesiredActivity() == DesiredActivity.SLEEP)
-        {
-            return false;
-        }
-
-        if (citizen.getCitizenDiseaseHandler().isSick() && citizen.getCitizenSleepHandler().isAsleep())
-        {
-            return false;
-        }
-
-        final ICitizenData citizenData = citizen.getCitizenData();
-        if (citizenData == null || !citizen.isOkayToEat())
-        {
-            return false;
-        }
-
-        if (citizenData.getSaturation() <= CitizenConstants.AVERAGE_SATURATION)
-        {
-            if (citizenData.getSaturation() <= RESTAURANT_LIMIT || (citizenData.getSaturation() < LOW_SATURATION && citizen.getHealth() < SEEK_DOCTOR_HEALTH))
-            {
-                return true;
-            }
-
-            waitingTicks++;
-            if (waitingTicks >= SECONDS_A_MINUTE / 3 * MINUTES_BETWEEN_FOOD_CHECKS || citizenData.getWorkBuilding() == null)
-            {
-                waitingTicks = 0;
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    @Override
-    public boolean canUse()
-    {
-        if (citizen.getDesiredActivity() == DesiredActivity.SLEEP)
-        {
-            return false;
-        }
-        stateMachine.tick();
-        return stateMachine.getState() != IDLE;
-    }
-
-    @Override
-    public void tick()
-    {
-        stateMachine.tick();
     }
 
     /**
@@ -247,7 +176,7 @@ public class EntityAIEatTask extends Goal
      *
      * @return the next state to go to, if successful idle.
      */
-    private EatingState eat()
+    private IState eat()
     {
         if (!hasFood())
         {
@@ -255,13 +184,13 @@ public class EntityAIEatTask extends Goal
         }
 
         final ICitizenData citizenData = citizen.getCitizenData();
-        final ItemStack stack = citizenData.getInventory().getStackInSlot(foodSlot);
-        if (!CAN_EAT.test(stack) || !canEat(citizenData, stack))
+        final ItemStack foodStack = citizenData.getInventory().getStackInSlot(foodSlot);
+        if (!CAN_EAT.test(foodStack) || !canEat(citizenData, foodStack))
         {
             return CHECK_FOR_FOOD;
         }
 
-        citizen.setItemInHand(InteractionHand.MAIN_HAND, stack);
+        citizen.setItemInHand(InteractionHand.MAIN_HAND, foodStack);
 
         citizen.swing(InteractionHand.MAIN_HAND);
         citizen.playSound(SoundEvents.GENERIC_EAT, (float) BASIC_VOLUME, (float) SoundUtils.getRandomPitch(citizen.getRandom()));
@@ -280,22 +209,16 @@ public class EntityAIEatTask extends Goal
             return EAT;
         }
 
+        final FoodProperties itemFood = foodStack.getItem().getFoodProperties(foodStack, citizen);
 
-        final FoodProperties itemFood = stack.getItem().getFoodProperties();
-
-        Item containerItem = stack.getItem().getCraftingRemainingItem();
-        if (containerItem == null && stack.getItem() instanceof BowlFoodItem)
-        {
-            containerItem = Items.BOWL;
-        }
+        ItemStack itemUseReturn = foodStack.finishUsingItem(citizen.level, citizen);
 
         final double satIncrease =
           itemFood.getNutrition() * (1.0 + citizen.getCitizenColonyHandler().getColony().getResearchManager().getResearchEffects().getEffectStrength(SATURATION));
 
         citizenData.increaseSaturation(satIncrease / 2.0);
-        citizenData.getInventory().extractItem(foodSlot, 1, false);
 
-        if (containerItem != null && !(containerItem instanceof AirItem))
+        if (!itemUseReturn.isEmpty() && itemUseReturn.getItem() != foodStack.getItem())
         {
             if (citizenData.getInventory().isFull())
             {
@@ -304,22 +227,22 @@ public class EntityAIEatTask extends Goal
                   citizen.getX(),
                   citizen.getY(),
                   citizen.getZ(),
-                  new ItemStack(containerItem, 1)
+                  itemUseReturn
                 );
             }
             else
             {
-                InventoryUtils.addItemStackToItemHandler(citizenData.getInventory(), new ItemStack(containerItem, 1));
+                InventoryUtils.addItemStackToItemHandler(citizenData.getInventory(), itemUseReturn);
             }
         }
 
         IColony citizenColony = citizen.getCitizenColonyHandler().getColony();
         if (citizenColony != null)
         {
-            AdvancementUtils.TriggerAdvancementPlayersForColony(citizenColony, playerMP -> AdvancementTriggers.CITIZEN_EAT_FOOD.trigger(playerMP, stack));
+            AdvancementUtils.TriggerAdvancementPlayersForColony(citizenColony, playerMP -> AdvancementTriggers.CITIZEN_EAT_FOOD.trigger(playerMP, foodStack));
         }
 
-        citizenData.markDirty();
+        citizenData.markDirty(60);
         citizen.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
 
         if (citizenData.getSaturation() < CitizenConstants.FULL_SATURATION && !citizenData.getInventory().getStackInSlot(foodSlot).isEmpty())
@@ -327,7 +250,9 @@ public class EntityAIEatTask extends Goal
             waitingTicks = 0;
             return EAT;
         }
-        return IDLE;
+
+        citizenData.setJustAte(true);
+        return CitizenAIState.IDLE;
     }
 
     /**
@@ -602,19 +527,5 @@ public class EntityAIEatTask extends Goal
         citizen.setItemInHand(InteractionHand.MAIN_HAND, ItemStack.EMPTY);
         restaurantPos = null;
         eatPos = null;
-    }
-
-    @Override
-    public void stop()
-    {
-        reset();
-        stateMachine.reset();
-        citizen.getCitizenData().setVisibleStatus(null);
-    }
-
-    @Override
-    public void start()
-    {
-        citizen.getCitizenData().setVisibleStatus(VisibleCitizenStatus.EAT);
     }
 }
